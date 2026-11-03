@@ -54,7 +54,7 @@ public class AgentHostTests : IDisposable
         return condition();
     }
 
-    private bool Found(string word) => new SearchEngine(Db).Search(word, 5).Count > 0;
+    private bool Found(string word) => SearchEngine.ForDatabase(Db).Search(word, 5).Count > 0;
 
     [Fact]
     public async Task New_file_in_watched_root_becomes_searchable_within_5_seconds()

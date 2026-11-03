@@ -2,6 +2,7 @@ using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
+using Recall.Core.Search;
 using Recall.Core.Ipc;
 using Recall.Core.Ocr;
 
@@ -33,14 +34,12 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
 
     public async Task RunAsync(CancellationToken ct)
     {
-        using var store = IndexStore.Open(options.DbPath);
+        using var store = SqliteIndexRepository.Open(options.DbPath);
         _policy = new IgnorePolicy(config, options.IsSystemPath);
-        var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
-        IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        _runner = new IndexRunner(store, _policy, extractors, ocr);
+        _runner = IndexRunnerFactory.Create(config, store, _policy);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log);
 
-        var handler = new AgentRequestHandler(options.DbPath, store, queue, () => _lastRunUtc);
+        var handler = new AgentRequestHandler(SearchEngine.ForDatabase(options.DbPath), store, queue, () => _lastRunUtc);
         var pipe = new PipeServer(handler.HandleAsync, options.PipeName).RunAsync(ct);
         if (pipe.IsFaulted) await pipe; // the pipe name is already owned by another process
 

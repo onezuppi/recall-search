@@ -22,7 +22,7 @@ public sealed record RunReport(
 
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
 public sealed class IndexRunner(
-    IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null)
+    IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
 
@@ -146,19 +146,19 @@ public sealed class IndexRunner(
                 contentId = await c.Inflight[hash].Task.WaitAsync(ct);
                 Interlocked.Increment(ref c.Deduped);
             }
-            store.UpsertFile(f, root, contentId, "ok", null);
+            store.UpsertFile(f, root, contentId, FileStatus.Ok, null);
         }
         catch (OperationCanceledException) { throw; }
         catch (ExtractException e) when (e.Transient) { Interlocked.Increment(ref c.Skipped); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Interlocked.Increment(ref c.Skipped); }
         catch (ExtractException e)
         {
-            store.UpsertFile(f, root, null, "failed", e.Message);
+            store.UpsertFile(f, root, null, FileStatus.Failed, e.Message);
             Interlocked.Increment(ref c.Failed);
         }
         catch (Exception e)
         {
-            store.UpsertFile(f, root, null, "failed", $"{e.GetType().Name}: {e.Message}");
+            store.UpsertFile(f, root, null, FileStatus.Failed, $"{e.GetType().Name}: {e.Message}");
             Interlocked.Increment(ref c.Failed);
         }
     }

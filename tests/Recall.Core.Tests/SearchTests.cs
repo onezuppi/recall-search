@@ -9,13 +9,13 @@ public class SearchTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "rs-srch-" + Guid.NewGuid().ToString("N"));
     private string Db => Path.Combine(_dir, "index.db");
-    private readonly IndexStore _store;
+    IIndexRepository _store;
     private long _hash;
 
     public SearchTests()
     {
         Directory.CreateDirectory(_dir);
-        _store = IndexStore.Open(Db);
+        _store = SqliteIndexRepository.Open(Db);
     }
 
     public void Dispose()
@@ -53,7 +53,7 @@ public class SearchTests : IDisposable
     public void Fragment_matches_inside_words()
     {
         Add(@"C:\n\a.txt", "text", Now, ("", "Пароль от wifi: молоко123"));
-        var hit = Assert.Single(new SearchEngine(Db).Search("оло", 10));
+        var hit = Assert.Single(SearchEngine.ForDatabase(Db).Search("оло", 10));
         Assert.Equal(@"C:\n\a.txt", hit.Path);
         Assert.Contains("молоко", hit.Snippet);
     }
@@ -63,7 +63,7 @@ public class SearchTests : IDisposable
     {
         Add(@"C:\n\scattered.txt", "text", Now, ("", "the map of the whole network"));
         Add(@"C:\n\adjacent.txt", "text", Now, ("", "our network map is attached"));
-        var hits = new SearchEngine(Db).Search("network map", 10);
+        var hits = SearchEngine.ForDatabase(Db).Search("network map", 10);
         Assert.Equal(2, hits.Count);
         Assert.EndsWith("adjacent.txt", hits[0].Path);
     }
@@ -73,7 +73,7 @@ public class SearchTests : IDisposable
     {
         Add(@"C:\n\scattered.txt", "text", Now, ("", "the map of the whole network"));
         Add(@"C:\n\adjacent.txt", "text", Now, ("", "our network map is attached"));
-        var hits = new SearchEngine(Db).Search("\"network map\"", 10);
+        var hits = SearchEngine.ForDatabase(Db).Search("\"network map\"", 10);
         Assert.Equal(@"C:\n\adjacent.txt", Assert.Single(hits).Path);
     }
 
@@ -83,7 +83,7 @@ public class SearchTests : IDisposable
         Add(@"C:\notes\old.pdf", "pdf", new DateTime(2025, 1, 10, 0, 0, 0, DateTimeKind.Local), ("page:1", "budget plan"));
         Add(@"C:\notes\new.pdf", "pdf", new DateTime(2026, 5, 20, 0, 0, 0, DateTimeKind.Local), ("page:1", "budget plan"));
         Add(@"C:\other\new.txt", "text", new DateTime(2026, 5, 20, 0, 0, 0, DateTimeKind.Local), ("", "budget plan"));
-        var e = new SearchEngine(Db);
+        var e = SearchEngine.ForDatabase(Db);
         Assert.Equal(3, e.Search("budget", 10).Count);
         Assert.Equal(2, e.Search("budget type:pdf", 10).Count);
         Assert.Equal(2, e.Search("budget after:2026-05", 10).Count);
@@ -97,7 +97,7 @@ public class SearchTests : IDisposable
     public void Two_char_query_uses_fallback()
     {
         Add(@"C:\n\a.txt", "text", Now, ("", "Мой код ab12"));
-        var e = new SearchEngine(Db);
+        var e = SearchEngine.ForDatabase(Db);
         Assert.Single(e.Search("ab", 10));
         Assert.Single(e.Search("мо", 10));
         Assert.Single(e.Search("код ab", 10));
@@ -110,7 +110,7 @@ public class SearchTests : IDisposable
         Add(@"C:\n\doc.pdf", "pdf", Now,
             ("page:1", "intro with a single invoice mention and lots of other filler words around it to dilute"),
             ("page:2", "invoice invoice invoice"));
-        var hits = new SearchEngine(Db).Search("invoice", 10);
+        var hits = SearchEngine.ForDatabase(Db).Search("invoice", 10);
         var hit = Assert.Single(hits);
         Assert.Equal("page:2", hit.Locator);
         Assert.Contains("invoice", hit.Snippet);
@@ -122,7 +122,7 @@ public class SearchTests : IDisposable
     {
         Add(@"C:\n\contract-draft.txt", "text", Now, ("", "unrelated words"));
         Add(@"C:\n\other.txt", "text", Now, ("", "see the contract terms"));
-        var hits = new SearchEngine(Db).Search("contract", 10);
+        var hits = SearchEngine.ForDatabase(Db).Search("contract", 10);
         Assert.Equal(2, hits.Count);
         Assert.EndsWith("other.txt", hits[0].Path);
         Assert.EndsWith("contract-draft.txt", hits[1].Path);
@@ -132,8 +132,8 @@ public class SearchTests : IDisposable
     [Fact]
     public void Empty_query_and_missing_db_return_nothing()
     {
-        Assert.Empty(new SearchEngine(Db).Search("   ", 10));
-        Assert.Empty(new SearchEngine(Path.Combine(_dir, "none.db")).Search("abc", 10));
+        Assert.Empty(SearchEngine.ForDatabase(Db).Search("   ", 10));
+        Assert.Empty(SearchEngine.ForDatabase(Path.Combine(_dir, "none.db")).Search("abc", 10));
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class SearchTests : IDisposable
     {
         var filler = string.Concat(Enumerable.Repeat("слово ", 120));
         Add(@"C:\n\long.txt", "text", Now, ("", filler + "ключевая фраза найдена здесь " + filler));
-        var hit = Assert.Single(new SearchEngine(Db).Search("ключевая", 5));
+        var hit = Assert.Single(SearchEngine.ForDatabase(Db).Search("ключевая", 5));
         Assert.Contains("ключевая фраза найдена здесь", hit.Context);
         Assert.True(hit.Context.Length > hit.Snippet.Length);
         Assert.InRange(hit.Context.Length, 200, 800);
@@ -154,7 +154,7 @@ public class SearchTests : IDisposable
     {
         var filler = string.Concat(Enumerable.Repeat("слово ", 120));
         Add(@"C:\n\long2.txt", "text", Now, ("", filler + "ключевая фраза найдена здесь " + filler));
-        var hit = Assert.Single(new SearchEngine(Db).Search("ключевая", 5));
+        var hit = Assert.Single(SearchEngine.ForDatabase(Db).Search("ключевая", 5));
         Assert.StartsWith("… ", hit.Snippet);
         Assert.InRange(hit.Snippet.IndexOf("ключевая", StringComparison.Ordinal), 0, 25);
         Assert.True(hit.Snippet.Length <= 170);
@@ -164,7 +164,7 @@ public class SearchTests : IDisposable
     public void Hit_context_has_no_leading_ellipsis_when_the_match_is_at_the_start()
     {
         Add(@"C:\n\short.txt", "text", Now, ("", "Шаумяна 20, офис продаж"));
-        var hit = Assert.Single(new SearchEngine(Db).Search("Шаумяна", 5));
+        var hit = Assert.Single(SearchEngine.ForDatabase(Db).Search("Шаумяна", 5));
         Assert.Equal("Шаумяна 20, офис продаж", hit.Context);
     }
 
@@ -172,7 +172,7 @@ public class SearchTests : IDisposable
     public void File_name_only_hit_has_no_context()
     {
         Add(@"C:\n\contract-draft.txt", "text", Now, ("", "unrelated words"));
-        var hit = Assert.Single(new SearchEngine(Db).Search("contract", 5));
+        var hit = Assert.Single(SearchEngine.ForDatabase(Db).Search("contract", 5));
         Assert.Equal("", hit.Context);
     }
 }

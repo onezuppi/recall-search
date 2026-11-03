@@ -1,11 +1,10 @@
-using Microsoft.Data.Sqlite;
 using Recall.Core.Ignore;
 
 namespace Recall.Core.Search;
 
 public sealed record SearchHit(string Path, string Group, string Locator, string Snippet, DateTime Modified, long Size, double Score)
 {
-    /// <summary>About 600 characters around the match for a details pane. Empty for file-name-only hits.</summary>
+    /// <summary>About 350 characters around the match for a details pane. Empty for file-name-only hits.</summary>
     public string Context { get; init; } = "";
 
     internal long SegmentId { get; init; }
@@ -15,18 +14,20 @@ public sealed record SearchHit(string Path, string Group, string Locator, string
 /// Fragment search over the trigram index. Ranking: phrase hits, then all-fragments hits by bm25, then file-name hits.
 /// Fragments under 3 characters cannot use the trigram index and fall back to a scan with a case-insensitive contains.
 /// </summary>
-public sealed class SearchEngine(string dbPath)
+public sealed class SearchEngine(ISearchRepository repository)
 {
     private const int MinTrigram = 3;
+    private const int TierPhrase = 2, TierAllTerms = 1;
+    private const double TierWeight = 1000, ScanScore = 1000;
+
+    public static SearchEngine ForDatabase(string dbPath) => new(new SqliteSearchRepository(dbPath));
 
     public IReadOnlyList<SearchHit> Search(string text, int limit)
     {
         var q = QueryParser.Parse(text);
-        if (q.IsEmpty || !File.Exists(dbPath)) return [];
-
-        using var db = new SqliteConnection($"Data Source={dbPath};Mode=ReadWrite");
-        db.Open();
-        RegisterFunctions(db);
+        if (q.IsEmpty) return [];
+        using var session = repository.Open();
+        if (session is null) return [];
 
         var terms = q.Fragments.Concat(q.Phrases).ToList();
         var longTerms = terms.Where(t => t.Length >= MinTrigram).ToList();
@@ -48,143 +49,37 @@ public sealed class SearchEngine(string dbPath)
             {
                 var joined = string.Join(" ", q.Fragments);
                 var expr = string.Join(" AND ", q.Phrases.Select(Quote).Append(Quote(joined)));
-                Add(RunFts(db, q, expr, shortTerms, perQuery, tier: 2));
+                Add(Matched(session.MatchSegments(q, expr, shortTerms, perQuery), TierPhrase));
             }
             var all = string.Join(" AND ", longTerms.Select(Quote));
-            Add(RunFts(db, q, all, shortTerms, perQuery, tier: 1));
+            Add(Matched(session.MatchSegments(q, all, shortTerms, perQuery), TierAllTerms));
         }
         else
         {
-            Add(RunScan(db, q, shortTerms, perQuery));
+            Add(session.ScanSegments(q, shortTerms, perQuery).Select(r => Hit(r, SnippetText.Around(r.Text, shortTerms[0]), ScanScore)));
         }
 
-        Add(RunNames(db, q, terms, perQuery));
-        return AttachContext(db, hits, terms);
+        Add(session.MatchFileNames(q, terms, perQuery).Select(NameHit));
+        return hits.Select(h => WithContext(session, h, terms)).ToList();
     }
 
-    private static List<SearchHit> AttachContext(SqliteConnection db, List<SearchHit> hits, IReadOnlyList<string> terms)
+    private static IEnumerable<SearchHit> Matched(IReadOnlyList<SegmentRow> rows, int tier) =>
+        rows.Select(r => Hit(r, SnippetText.Clean(r.Text), tier * TierWeight - r.Rank));
+
+    private static SearchHit Hit(SegmentRow r, string snippet, double score) =>
+        new(r.Path, r.Group, r.Locator, snippet, r.Modified, r.Size, score) { SegmentId = r.SegmentId };
+
+    private static SearchHit NameHit(FileRow f)
     {
-        using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT substr(text, 1, 300000) FROM segments WHERE id = $id";
-        var id = cmd.Parameters.Add("$id", SqliteType.Integer);
-        return hits.Select(h =>
-        {
-            if (h.SegmentId == 0) return h;
-            id.Value = h.SegmentId;
-            return cmd.ExecuteScalar() is string text
-                ? h with { Context = SnippetText.Context(text, terms), Snippet = SnippetText.Lead(text, terms) }
-                : h;
-        }).ToList();
+        var group = f.Group.Length > 0 ? f.Group : BuiltInRules.GroupOf(System.IO.Path.GetExtension(f.Path)) ?? "";
+        return new SearchHit(f.Path, group, "", System.IO.Path.GetFileName(f.Path), f.Modified, f.Size, 0);
+    }
+
+    private static SearchHit WithContext(ISearchSession session, SearchHit h, IReadOnlyList<string> terms)
+    {
+        if (h.SegmentId == 0 || session.SegmentText(h.SegmentId) is not { } text) return h;
+        return h with { Context = SnippetText.Context(text, terms), Snippet = SnippetText.Lead(text, terms) };
     }
 
     private static string Quote(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
-
-    private static void RegisterFunctions(SqliteConnection db)
-    {
-        db.CreateFunction("rs_contains", (string? text, string? frag) =>
-            text != null && frag != null && text.Contains(frag, StringComparison.OrdinalIgnoreCase));
-        db.CreateFunction("rs_in", (string? path, string? term) =>
-        {
-            if (path == null || term == null) return false;
-            var parts = path.Split('\\');
-            for (var i = 0; i < parts.Length - 1; i++)
-                if (parts[i].StartsWith(term, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
-        });
-        db.CreateFunction("rs_ext", (string? path, string? ext) =>
-            path != null && ext != null && path.EndsWith("." + ext, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static (string Where, List<(string, object)> Args) Filters(ParsedQuery q)
-    {
-        var where = new List<string> { "f.status = 'ok'" };
-        var args = new List<(string, object)>();
-        if (q.In != null) { where.Add("rs_in(f.path, $in)"); args.Add(("$in", q.In)); }
-        if (q.Type != null) { where.Add("(c.grp = $type OR rs_ext(f.path, $type))"); args.Add(("$type", q.Type)); }
-        if (q.After is { } a) { where.Add("f.mtime >= $after"); args.Add(("$after", ToUtc(a).Ticks)); }
-        if (q.Before is { } b) { where.Add("f.mtime < $before"); args.Add(("$before", ToUtc(b).Ticks)); }
-        return (string.Join(" AND ", where), args);
-    }
-
-    private static DateTime ToUtc(DateTime local) => DateTime.SpecifyKind(local, DateTimeKind.Local).ToUniversalTime();
-
-    private static List<SearchHit> RunFts(SqliteConnection db, ParsedQuery q, string matchExpr, List<string> shortTerms, int limit, int tier)
-    {
-        var (where, args) = Filters(q);
-        var extra = string.Concat(shortTerms.Select((_, i) => $" AND rs_contains(s.text, $s{i})"));
-        using var cmd = db.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT f.path, c.grp, s.locator, snippet(segments_fts, 0, '', '', ' … ', 64), f.mtime, f.size, bm25(segments_fts), s.id
-            FROM segments_fts
-            JOIN segments s ON s.id = segments_fts.rowid
-            JOIN contents c ON c.id = s.content_id
-            JOIN files f ON f.content_id = c.id
-            WHERE segments_fts MATCH $m AND {where}{extra}
-            ORDER BY bm25(segments_fts)
-            LIMIT $lim
-            """;
-        cmd.Parameters.AddWithValue("$m", matchExpr);
-        cmd.Parameters.AddWithValue("$lim", limit);
-        foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v);
-        for (var i = 0; i < shortTerms.Count; i++) cmd.Parameters.AddWithValue($"$s{i}", shortTerms[i]);
-        var list = new List<SearchHit>();
-        using var r = cmd.ExecuteReader();
-        while (r.Read())
-            list.Add(new SearchHit(r.GetString(0), r.GetString(1), r.GetString(2), SnippetText.Clean(r.GetString(3)),
-                new DateTime(r.GetInt64(4), DateTimeKind.Utc), r.GetInt64(5), tier * 1000 - r.GetDouble(6)) { SegmentId = r.GetInt64(7) });
-        return list;
-    }
-
-    private static List<SearchHit> RunScan(SqliteConnection db, ParsedQuery q, List<string> shortTerms, int limit)
-    {
-        var (where, args) = Filters(q);
-        var conds = string.Concat(shortTerms.Select((_, i) => $" AND rs_contains(s.text, $s{i})"));
-        using var cmd = db.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT f.path, c.grp, s.locator, substr(s.text, 1, 200000), f.mtime, f.size, s.id
-            FROM segments s
-            JOIN contents c ON c.id = s.content_id
-            JOIN files f ON f.content_id = c.id
-            WHERE {where}{conds}
-            ORDER BY f.mtime DESC
-            LIMIT $lim
-            """;
-        cmd.Parameters.AddWithValue("$lim", limit);
-        foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v);
-        for (var i = 0; i < shortTerms.Count; i++) cmd.Parameters.AddWithValue($"$s{i}", shortTerms[i]);
-        var list = new List<SearchHit>();
-        using var r = cmd.ExecuteReader();
-        while (r.Read())
-            list.Add(new SearchHit(r.GetString(0), r.GetString(1), r.GetString(2), SnippetText.Around(r.GetString(3), shortTerms[0]),
-                new DateTime(r.GetInt64(4), DateTimeKind.Utc), r.GetInt64(5), 1000) { SegmentId = r.GetInt64(6) });
-        return list;
-    }
-
-    private static List<SearchHit> RunNames(SqliteConnection db, ParsedQuery q, List<string> terms, int limit)
-    {
-        var (where, args) = Filters(q);
-        var conds = string.Concat(terms.Select((_, i) => $" AND rs_contains(f.path, $n{i})"));
-        using var cmd = db.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT f.path, COALESCE(c.grp, ''), f.mtime, f.size
-            FROM files f LEFT JOIN contents c ON c.id = f.content_id
-            WHERE {where}{conds}
-            ORDER BY f.mtime DESC
-            LIMIT $lim
-            """;
-        cmd.Parameters.AddWithValue("$lim", limit);
-        foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v);
-        for (var i = 0; i < terms.Count; i++) cmd.Parameters.AddWithValue($"$n{i}", terms[i]);
-        var list = new List<SearchHit>();
-        using var r = cmd.ExecuteReader();
-        while (r.Read())
-        {
-            var path = r.GetString(0);
-            var group = r.GetString(1);
-            if (group.Length == 0) group = BuiltInRules.GroupOf(System.IO.Path.GetExtension(path)) ?? "";
-            list.Add(new SearchHit(path, group, "", System.IO.Path.GetFileName(path),
-                new DateTime(r.GetInt64(2), DateTimeKind.Utc), r.GetInt64(3), 0));
-        }
-        return list;
-    }
 }
