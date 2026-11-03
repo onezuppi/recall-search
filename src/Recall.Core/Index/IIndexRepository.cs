@@ -11,7 +11,7 @@ public static class FileStatus
 }
 
 /// <summary>Write side of the index: files point to deduplicated contents, contents own text segments.</summary>
-public interface IIndexRepository : IDisposable
+public interface IIndexRepository : IDirectoryRepository, IDisposable
 {
     /// <summary>Stored size and mtime ticks of every file under a root, keyed by path.</summary>
     IReadOnlyDictionary<string, (long Size, long Mtime)> Snapshot(string root);

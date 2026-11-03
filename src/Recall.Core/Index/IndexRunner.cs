@@ -19,26 +19,34 @@ public sealed record RunProgress(string Root, long Done, long Total);
 /// </summary>
 public sealed record RunReport(
     long Added, long Changed, long Removed, long Hashed, long Extracted, long Deduped, long Failed, long Skipped, long MissingRoots,
-    TimeSpan Scan, TimeSpan Hash, TimeSpan Extract, TimeSpan Ocr, TimeSpan Elapsed);
+    TimeSpan Scan, TimeSpan Hash, TimeSpan Extract, TimeSpan Ocr, TimeSpan Elapsed,
+    long DirsListed = 0, long DirsReused = 0);
 
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
 /// <param name="pause">While paused no new root, file or embedded image is started; work in flight finishes.</param>
+/// <param name="fullScanInterval">Longest time a root may go without a full walk in <see cref="ScanMode.Auto"/>; null selects 7 days.</param>
 public sealed class IndexRunner(
-    IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null)
+    IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null,
+    TimeSpan? fullScanInterval = null)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
+    private readonly RootScanPlanner planner = new(store, policy, fullScanInterval);
 
     private sealed class Counters
     {
         public long Added, Changed, Removed, Hashed, Extracted, Deduped, Failed, Skipped, MissingRoots;
-        public long ScanTicks, HashTicks, ExtractTicks, OcrTicks;
+        public long ScanTicks, HashTicks, ExtractTicks, OcrTicks, DirsListed, DirsReused;
+        /// <summary>Directories with a file skipped for now; their remembered time is dropped so the next fast pass lists them.</summary>
+        public readonly ConcurrentDictionary<string, byte> RetryDirectories = new(StringComparer.OrdinalIgnoreCase);
         public readonly ConcurrentDictionary<UInt128, TaskCompletionSource<long>> Inflight = new();
     }
 
     /// <summary>Number of files processed at the same time. OCR pools should be at least this large.</summary>
     public static int DefaultWorkers { get; } = Math.Max(1, Environment.ProcessorCount / 2);
 
-    public async Task<RunReport> RunAsync(IReadOnlyList<RootFolder> roots, IProgress<RunProgress>? progress, CancellationToken ct)
+    /// <param name="mode">Full (default) walks every directory. Auto skips directories unchanged since the last pass; see <see cref="RootScanPlanner"/>.</param>
+    public async Task<RunReport> RunAsync(
+        IReadOnlyList<RootFolder> roots, IProgress<RunProgress>? progress, CancellationToken ct, ScanMode mode = ScanMode.Full)
     {
         var total = Stopwatch.StartNew();
         var c = new Counters();
@@ -49,9 +57,11 @@ public sealed class IndexRunner(
             var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
             // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
             if (!Directory.Exists(rootPath)) { c.MissingRoots++; continue; }
-            var scanner = new Scanner(policy);
-            var scanned = await Task.Run(() => scanner.Scan(root, ct).ToList(), ct);
-            var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath));
+            var walk = planner.Begin(rootPath, mode);
+            var scanned = await Task.Run(() => walk.Scan(root, ct), ct);
+            var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath), walk.UnchangedDirectories);
+            c.DirsListed += walk.DirectoriesListed;
+            c.DirsReused += walk.DirectoriesReused;
             Interlocked.Add(ref c.ScanTicks, sw.ElapsedTicks);
 
             if (changes.Removed.Count > 0) store.RemoveFiles(changes.Removed);
@@ -61,6 +71,8 @@ public sealed class IndexRunner(
 
             var work = changes.Added.Concat(changes.Changed).OrderByDescending(f => f.LastWriteUtc).ToList();
             await ProcessAsync(work, rootPath, c, progress, ct);
+            walk.Commit(c.RetryDirectories.Keys);
+            c.RetryDirectories.Clear();
         }
         return Report(c, total.Elapsed);
     }
@@ -99,7 +111,7 @@ public sealed class IndexRunner(
     private static RunReport Report(Counters c, TimeSpan elapsed) => new(
         c.Added, c.Changed, c.Removed, c.Hashed, c.Extracted, c.Deduped, c.Failed, c.Skipped, c.MissingRoots,
         TimeSpan.FromTicks(c.ScanTicks), TimeSpan.FromTicks(c.HashTicks), TimeSpan.FromTicks(c.ExtractTicks),
-        TimeSpan.FromTicks(c.OcrTicks), elapsed);
+        TimeSpan.FromTicks(c.OcrTicks), elapsed, c.DirsListed, c.DirsReused);
 
     private async Task ProcessAsync(List<FileRecord> work, string root, Counters c, IProgress<RunProgress>? progress, CancellationToken ct)
     {
@@ -158,8 +170,8 @@ public sealed class IndexRunner(
             store.UpsertFile(f, root, contentId, FileStatus.Ok, null);
         }
         catch (OperationCanceledException) { throw; }
-        catch (ExtractException e) when (e.Transient) { Interlocked.Increment(ref c.Skipped); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Interlocked.Increment(ref c.Skipped); }
+        catch (ExtractException e) when (e.Transient) { Retry(f, c); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Retry(f, c); }
         catch (ExtractException e)
         {
             store.UpsertFile(f, root, null, FileStatus.Failed, e.Message);
@@ -170,6 +182,12 @@ public sealed class IndexRunner(
             store.UpsertFile(f, root, null, FileStatus.Failed, $"{e.GetType().Name}: {e.Message}");
             Interlocked.Increment(ref c.Failed);
         }
+    }
+
+    private static void Retry(FileRecord f, Counters c)
+    {
+        Interlocked.Increment(ref c.Skipped);
+        c.RetryDirectories.TryAdd(Path.GetDirectoryName(f.Path)!, 0);
     }
 
     private async Task<long> ExtractAndStoreAsync(FileRecord f, UInt128 hash, Counters c, CancellationToken ct)

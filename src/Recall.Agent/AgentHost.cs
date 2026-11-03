@@ -6,6 +6,7 @@ using Recall.Core.Index;
 using Recall.Core.Search;
 using Recall.Core.Ipc;
 using Recall.Core.Ocr;
+using Recall.Core.Scan;
 
 namespace Recall.Agent;
 
@@ -61,7 +62,8 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         StartWatchers();
         _watching.TrySetResult();
 
-        await IndexAsync(_settings.Config.Roots, ct);
+        // Startup only has to find what changed while the agent was off; the runner falls back to a full walk when due.
+        await IndexAsync(_settings.Config.Roots, ScanMode.Auto, ct);
         await pipe;
         lock (_watchers) foreach (var w in _watchers.Values) w.Dispose();
     }
@@ -107,12 +109,13 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     {
         _ = Task.Run(async () =>
         {
-            try { await IndexAsync([root], CancellationToken.None); }
+            // Watcher overflow means events were lost, so trust no remembered directory time.
+            try { await IndexAsync([root], ScanMode.Full, CancellationToken.None); }
             catch (Exception e) { _log.Error($"rescan of {root.Path} failed", e); }
         });
     }
 
-    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, CancellationToken ct)
+    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct)
     {
         await _indexGate.WaitAsync(ct);
         try
@@ -120,7 +123,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
             // A root removed while this pass waited for the gate must not come back.
             var current = roots.Where(r => _settings!.IsConfigured(r.Path)).ToList();
             _log.Info($"indexing {current.Count} root(s)");
-            LastReport = await _runner!.RunAsync(current, null, ct);
+            LastReport = await _runner!.RunAsync(current, null, ct, mode);
             _lastRunUtc = DateTime.UtcNow;
             _log.Info($"pass done: {LastReport}");
         }
@@ -149,7 +152,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     void ISettingsEffects.RootAdded(RootFolder root)
     {
         StartWatcher(root);
-        Background($"indexing of {root.Path}", () => IndexAsync([root], CancellationToken.None));
+        Background($"indexing of {root.Path}", () => IndexAsync([root], ScanMode.Full, CancellationToken.None));
     }
 
     void ISettingsEffects.RootRemoved(RootFolder root)
@@ -164,7 +167,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     {
         _policy!.SetGlobalPatterns(patterns);
         // A full pass drops files the new patterns exclude and brings back those a removed pattern had hidden.
-        Background("rescan after exclude change", () => IndexAsync(_settings!.Config.Roots, CancellationToken.None));
+        Background("rescan after exclude change", () => IndexAsync(_settings!.Config.Roots, ScanMode.Full, CancellationToken.None));
     }
 
     private async Task RemoveRootFilesAsync(RootFolder root)

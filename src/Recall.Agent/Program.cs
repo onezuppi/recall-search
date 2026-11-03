@@ -5,6 +5,7 @@ using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
 using Recall.Core.Ocr;
+using Recall.Core.Scan;
 
 CliOptions cli;
 try { cli = CliOptions.Parse(args); }
@@ -48,7 +49,7 @@ try
     {
         using var store = SqliteIndexRepository.Open(dbPath);
         var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers);
-        var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
+        var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         log.Info($"one-shot pass done: {report}");
         return 0;
     }

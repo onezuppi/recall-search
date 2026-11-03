@@ -4,7 +4,7 @@ using Recall.Core.Scan;
 namespace Recall.Core.Index;
 
 /// <summary>SQLite implementation of <see cref="IIndexRepository"/>; segments are FTS5 trigram indexed (see <see cref="IndexSchema"/>).</summary>
-public sealed class SqliteIndexRepository : IIndexRepository
+public sealed partial class SqliteIndexRepository : IIndexRepository
 {
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
