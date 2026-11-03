@@ -19,7 +19,9 @@ public sealed record IpcRoot(string Path, bool Watched);
 public sealed record IpcFileType(string Extension, string Group);
 
 /// <param name="MinSimilarity">Cosine similarity under which a semantic hit is hidden. Null when semantic search is off.</param>
-public sealed record IpcSettings(IpcRoot[] Roots, string[] Excludes, IpcFileType[]? FileTypes = null, double? MinSimilarity = null);
+/// <param name="SlowScanTime">Local "HH:mm" of the daily slow-folder scan; empty when the scheduled scan is off.</param>
+public sealed record IpcSettings(
+    IpcRoot[] Roots, string[] Excludes, IpcFileType[]? FileTypes = null, double? MinSimilarity = null, string SlowScanTime = "");
 
 public sealed record IpcResponse(bool Ok, string? Error = null, IpcHit[]? Hits = null, IpcStatus? Status = null, IpcSettings? Settings = null);
 
@@ -28,7 +30,7 @@ public static class IpcOps
     public const string Search = "search", Status = "status", Ping = "ping";
     public const string Settings = "settings", AddRoot = "add-root", RemoveRoot = "remove-root";
     public const string AddExclude = "add-exclude", RemoveExclude = "remove-exclude";
-    public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity";
+    public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity", SetSlowScan = "set-slow-scan";
     public const string FastList = "fast", SlowList = "slow";
 }
 

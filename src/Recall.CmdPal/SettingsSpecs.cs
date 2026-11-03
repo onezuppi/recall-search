@@ -15,11 +15,19 @@ internal static class SettingsSpecs
             "One folder per line. Watched live: a new or changed file is searchable within seconds. Use it for folders you work in every day.",
             watched: true),
         Folders("Slow folders",
-            "One folder per line. Scanned when the agent starts and by its periodic pass, not watched. Cheaper for big or rarely changing folders. "
+            "One folder per line. Scanned when the agent starts and once a day at the time set below, not watched. Cheaper for big or rarely changing folders. "
             + "To move a folder between the lists, delete its line in one box and save, then add it to the other box and save. "
             + "A folder already in the other list is moved by adding it here. A fast folder may lie inside a slow one (and the other way round): "
             + "the inner list owns that subfolder.",
             watched: false),
+        new ListSpec(
+            "Slow scan time",
+            "Local time of the daily scan of the slow folders, 24-hour clock, for example 03:00. Empty: slow folders are scanned only when the agent starts. "
+            + "If the computer was off at that time, the scan runs once when the agent starts.",
+            "03:00",
+            s => string.IsNullOrEmpty(s.SlowScanTime) ? [] : [s.SlowScanTime],
+            c => SettingsClient.SetSlowScanAsync(c.Wanted.Count > 0 ? c.Wanted[0] : ""),
+            Multiline: false),
         new ListSpec(
             "Exclusions",
             "One pattern per line. Files and folders matching a pattern are never indexed. Glob: *.log, node_modules/, secret*.txt. "

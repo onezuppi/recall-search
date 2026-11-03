@@ -20,9 +20,11 @@ namespace Recall.Agent;
 /// <param name="ConfigPath">Where settings changes are saved. Null keeps them in memory only.</param>
 /// <param name="Http">Downloads the embedding model. Null selects a new client.</param>
 /// <param name="ModelsRoot">Null selects the models folder of the data directory.</param>
+/// <param name="SchedulePoll">How often the slow-scan time is checked. Null selects 1 minute.</param>
 public sealed record AgentOptions(
     string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null,
-    PauseOptions? Activity = null, string? ConfigPath = null, IChangeJournal? Journal = null, HttpClient? Http = null, string? ModelsRoot = null);
+    PauseOptions? Activity = null, string? ConfigPath = null, IChangeJournal? Journal = null, HttpClient? Http = null, string? ModelsRoot = null,
+    TimeSpan? SchedulePoll = null);
 
 /// <param name="Poll">How often the monitor is asked. Null selects 3 seconds.</param>
 /// <param name="ResumeDelay">Continuous idle time before work resumes. Null selects 30 seconds.</param>
@@ -71,7 +73,10 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
 
         await EmbeddingSetup.EnsureModelAsync(config, modelsRoot, options.Http ?? new HttpClient(), _log.Info, ct);
         await StartupPassAsync(store, ct);
+        MarkSlowScanDone(DateTime.Now); // the startup pass walked every root
+        var schedule = SlowScanLoopAsync(ct);
         await pipe;
+        try { await schedule; } catch (OperationCanceledException) { }
         lock (_watchers) foreach (var w in _watchers.Values) w.Dispose();
     }
 
@@ -139,6 +144,33 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         await IndexAsync(_settings!.Config.Roots, ScanMode.Auto, ct, plan.Hints);
         catchUp.Commit(plan);
     }
+
+    private const string SlowScanKey = "slowscan:last";
+
+    private async Task SlowScanLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(options.SchedulePoll ?? TimeSpan.FromMinutes(1));
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            try { await RunScheduledScanAsync(DateTime.Now, ct); }
+            catch (Exception e) when (e is not OperationCanceledException) { _log.Error("scheduled scan failed", e); }
+        }
+    }
+
+    /// <summary>Test seam: scans the slow folders when the daily time has passed since the last scan.</summary>
+    internal async Task RunScheduledScanAsync(DateTime now, CancellationToken ct)
+    {
+        if (!SlowScanSchedule.TryParse(_settings!.Config.SlowScanTime, out var at)) return;
+        var last = long.TryParse(_store!.GetMeta(SlowScanKey), out var ticks) ? new DateTime(ticks, DateTimeKind.Local) : (DateTime?)null;
+        if (!SlowScanSchedule.IsDue(at, last, now)) return;
+        MarkSlowScanDone(now); // before the scan: a failing scan must not repeat every minute
+        var slow = _settings.Config.Roots.Where(r => !r.Watched).ToList();
+        if (slow.Count == 0) return;
+        _log.Info($"scheduled scan of {slow.Count} slow folder(s)");
+        await IndexAsync(slow, ScanMode.Auto, ct);
+    }
+
+    private void MarkSlowScanDone(DateTime now) => _store!.SetMeta(SlowScanKey, now.Ticks.ToString());
 
     private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct, RootHints? hints = null)
     {

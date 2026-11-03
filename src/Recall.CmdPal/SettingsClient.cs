@@ -28,6 +28,8 @@ internal static class SettingsClient
 
     public static Task<SettingsResult> SetSimilarityAsync(string value) => CallAsync(IpcOps.SetSimilarity, value);
 
+    public static Task<SettingsResult> SetSlowScanAsync(string time) => CallAsync(IpcOps.SetSlowScan, time);
+
     public static Task<SettingsResult> AddTypeAsync(string extension, string group) => CallAsync(IpcOps.AddType, extension, group);
 
     public static Task<SettingsResult> RemoveTypeAsync(string extension) => CallAsync(IpcOps.RemoveType, extension);

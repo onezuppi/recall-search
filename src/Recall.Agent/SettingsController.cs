@@ -3,6 +3,7 @@ using Recall.Core.Config;
 using Recall.Core.Embed;
 using Recall.Core.Ignore;
 using Recall.Core.Ipc;
+using Recall.Core.Scan;
 
 namespace Recall.Agent;
 
@@ -48,7 +49,7 @@ public sealed class SettingsController(
             [.. c.Roots.Select(r => new IpcRoot(r.Path, r.Watched))],
             [.. c.GlobalIgnorePatterns],
             [.. c.CustomFileTypes.OrderBy(t => t.Key).Select(t => new IpcFileType(t.Key, t.Value))],
-            MinSimilarity(c));
+            MinSimilarity(c), c.SlowScanTime);
     }
 
     public IpcResponse Handle(IpcRequest r) => r.Op switch
@@ -62,6 +63,7 @@ public sealed class SettingsController(
         IpcOps.AddType => Change(c => AddType(c, r.Value, r.Target)),
         IpcOps.RemoveType => Change(c => RemoveType(c, r.Value)),
         IpcOps.SetSimilarity => Change(c => SetSimilarity(c, r.Value)),
+        IpcOps.SetSlowScan => Change(c => SetSlowScan(c, r.Value)),
         _ => new IpcResponse(false, "unknown operation"),
     };
 
@@ -137,6 +139,14 @@ public sealed class SettingsController(
             return Edit.Refuse("Similarity must be a number from 0 to 1");
         if (c.EmbeddingModel == null) return Edit.Refuse("Semantic search is off in config.json");
         return new Edit(c with { EmbeddingMinSimilarity = number }, After: () => effects.SimilarityChanged(number));
+    }
+
+    /// <summary>Read live by the agent's timer, so no effect callback is needed.</summary>
+    private static Edit SetSlowScan(RecallConfig c, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return new Edit(c with { SlowScanTime = "" });
+        if (!SlowScanSchedule.TryParse(value, out var time)) return Edit.Refuse("Time must look like 03:00 (24-hour clock), or be empty");
+        return new Edit(c with { SlowScanTime = SlowScanSchedule.Format(time) });
     }
 
     private const string ListError = "List must be fast or slow";

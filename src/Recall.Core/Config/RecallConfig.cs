@@ -40,6 +40,9 @@ public sealed record RecallConfig(
     /// <summary>Extra file types: extension with the leading dot (lower case) to group name. Built-in types cannot be overridden.</summary>
     public IReadOnlyDictionary<string, string> CustomFileTypes { get; init; } = new Dictionary<string, string>();
 
+    /// <summary>Local time ("HH:mm") of the daily scan of the slow folders. Empty turns the scheduled scan off; they are then scanned at start only.</summary>
+    public string SlowScanTime { get; init; } = Scan.SlowScanSchedule.Default;
+
     /// <summary>Pause indexing while a full screen game or a presentation is running.</summary>
     public bool PauseWhenBusy { get; init; } = true;
 
