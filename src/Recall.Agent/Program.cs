@@ -53,7 +53,8 @@ try
         return 0;
     }
 
-    await new AgentHost(config, new AgentOptions(dbPath, Log: log, Activity: pause)).RunAsync(shutdown.Token);
+    var configForSave = cli.DbPath == null && cli.Roots.Count == 0 ? configPath : null;
+    await new AgentHost(config, new AgentOptions(dbPath, Log: log, Activity: pause, ConfigPath: configForSave)).RunAsync(shutdown.Token);
     return 0;
 }
 catch (OperationCanceledException) { return 0; }

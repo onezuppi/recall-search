@@ -4,8 +4,8 @@ using Recall.Core.Search;
 
 namespace Recall.Agent;
 
-/// <summary>Maps pipe requests to the search engine and index counters.</summary>
-public sealed class AgentRequestHandler(SearchEngine search, IIndexRepository store, ChangeQueue queue, Func<DateTime?> lastRunUtc)
+/// <summary>Maps pipe requests to the search engine, index counters and settings.</summary>
+public sealed class AgentRequestHandler(SearchEngine search, IIndexRepository store, ChangeQueue queue, SettingsController settings, Func<DateTime?> lastRunUtc)
 {
     private const int MaxLimit = 200;
 
@@ -14,6 +14,7 @@ public sealed class AgentRequestHandler(SearchEngine search, IIndexRepository st
         IpcOps.Ping => new IpcResponse(true),
         IpcOps.Status => Status(),
         IpcOps.Search => Search(request),
+        IpcOps.Settings or IpcOps.AddRoot or IpcOps.RemoveRoot or IpcOps.AddExclude or IpcOps.RemoveExclude => settings.Handle(request),
         _ => new IpcResponse(false, "unknown operation"),
     });
 
