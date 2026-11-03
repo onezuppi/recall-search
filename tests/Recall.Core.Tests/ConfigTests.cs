@@ -49,6 +49,24 @@ public class ConfigTests
     }
 
     [Fact]
+    public void Embedding_fields_round_trip_and_default_off()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var cfg = new RecallConfig([], new HashSet<string>(), []);
+            Assert.Null(cfg.EmbeddingModel);
+            Assert.Equal(EmbeddingDevice.Cpu, cfg.EmbeddingDevice);
+            (cfg with { EmbeddingModel = "multilingual-e5-small", EmbeddingDevice = EmbeddingDevice.Npu }).Save(path);
+            Assert.Contains("\"Npu\"", File.ReadAllText(path));
+            var back = RecallConfig.Load(path);
+            Assert.Equal("multilingual-e5-small", back.EmbeddingModel);
+            Assert.Equal(EmbeddingDevice.Npu, back.EmbeddingDevice);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Missing_file_loads_default()
     {
         var cfg = RecallConfig.Load(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json"));

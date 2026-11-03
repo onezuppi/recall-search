@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Recall.Core.Config;
 
+public enum EmbeddingDevice { Cpu, Gpu, Npu }
+
 public sealed record RootFolder(string Path, bool Watched, string? Name = null);
 
 public static class RecallPaths
@@ -18,13 +20,16 @@ public sealed record RecallConfig(
 {
     public long MaxTextBytes { get; init; } = 2 * 1024 * 1024;
     public long MaxImageBytes { get; init; } = 50 * 1024 * 1024;
+    /// <summary>Id from <c>ModelCatalog</c>; null turns embeddings off.</summary>
+    public string? EmbeddingModel { get; init; }
+    public EmbeddingDevice EmbeddingDevice { get; init; } = EmbeddingDevice.Cpu;
     public IReadOnlyList<string> OcrLanguages { get; init; } = ["ru", "en-US"];
 
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
-        Converters = { new GroupSetConverter() },
+        Converters = { new GroupSetConverter(), new JsonStringEnumConverter() },
     };
 
     public static RecallConfig CreateDefault()
