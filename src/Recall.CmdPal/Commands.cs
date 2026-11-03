@@ -7,7 +7,7 @@ namespace Recall.CmdPal;
 
 internal static class Icons
 {
-    public static IconInfo Logo => IconHelpers.FromRelativePath("Assets\\StoreLogo.png");
+    public static IconInfo Logo => IconHelpers.FromRelativePath("Assets\\RecallIcon.png");
 }
 
 /// <summary>Opens a result with its default app. Paths come from the verified agent but are still checked before the shell sees them.</summary>
