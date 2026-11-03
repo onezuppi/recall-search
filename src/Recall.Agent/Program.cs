@@ -44,10 +44,10 @@ try
     if (cli.Once)
     {
         using var store = IndexStore.Open(dbPath);
-        var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
+        var ocr = new WindowsOcr(config.OcrLanguages, cli.Workers ?? IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         var policy = new IgnorePolicy(config);
-        var runner = new IndexRunner(store, policy, extractors, ocr);
+        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
         log.Info($"one-shot pass done: {report}");
         return 0;

@@ -20,8 +20,12 @@ public sealed record RunReport(
     long Added, long Changed, long Removed, long Hashed, long Extracted, long Deduped, long Failed, long Skipped, long MissingRoots,
     TimeSpan Scan, TimeSpan Hash, TimeSpan Extract, TimeSpan Ocr, TimeSpan Elapsed);
 
-public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr)
+/// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
+public sealed class IndexRunner(
+    IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null)
 {
+    private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
+
     private sealed class Counters
     {
         public long Added, Changed, Removed, Hashed, Extracted, Deduped, Failed, Skipped, MissingRoots;
@@ -94,7 +98,7 @@ public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnly
         if (work.Count == 0) return;
         var channel = Channel.CreateBounded<FileRecord>(64);
         long done = 0;
-        var workers = Enumerable.Range(0, DefaultWorkers).Select(_ => Task.Run(async () =>
+        var workers = Enumerable.Range(0, _workers).Select(_ => Task.Run(async () =>
         {
             await foreach (var f in channel.Reader.ReadAllAsync(ct))
             {

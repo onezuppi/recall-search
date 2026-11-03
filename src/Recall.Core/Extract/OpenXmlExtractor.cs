@@ -19,20 +19,34 @@ public sealed class OpenXmlExtractor : IExtractor
     {
         try
         {
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            var segments = new List<Segment>();
-            var images = new List<EmbeddedImage>();
-            switch (ext)
+            try { return Task.FromResult(Read(OpenShared(path), path, ct)); }
+            catch (Exception e) when (OfficeXmlRepair.IsInvalidXmlSpace(e))
             {
-                case ".docx": Docx(path, segments, images); break;
-                case ".pptx": Pptx(path, segments, images, ct); break;
-                default: Xlsx(path, segments, images, ct); break;
+                return Task.FromResult(Read(OfficeXmlRepair.RepairedCopy(path), path, ct));
             }
-            return Task.FromResult(new ExtractResult(segments, images));
         }
         catch (OperationCanceledException) { throw; }
         catch (ExtractException) { throw; }
         catch (Exception e) { throw new ExtractException("cannot read Office file: " + e.Message, e); }
+    }
+
+    private static FileStream OpenShared(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+    private static ExtractResult Read(Stream source, string path, CancellationToken ct)
+    {
+        using (source)
+        {
+            var segments = new List<Segment>();
+            var images = new List<EmbeddedImage>();
+            switch (Path.GetExtension(path).ToLowerInvariant())
+            {
+                case ".docx": Docx(source, segments, images); break;
+                case ".pptx": Pptx(source, segments, images, ct); break;
+                default: Xlsx(source, segments, images, ct); break;
+            }
+            return new ExtractResult(segments, images);
+        }
     }
 
     private static void AddImages(IEnumerable<ImagePart> parts, string prefix, List<EmbeddedImage> images)
@@ -50,18 +64,18 @@ public sealed class OpenXmlExtractor : IExtractor
         }
     }
 
-    private static void Docx(string path, List<Segment> segments, List<EmbeddedImage> images)
+    private static void Docx(Stream source, List<Segment> segments, List<EmbeddedImage> images)
     {
-        using var doc = WordprocessingDocument.Open(path, false);
+        using var doc = WordprocessingDocument.Open(source, false);
         var main = doc.MainDocumentPart ?? throw new ExtractException("no main document part");
         var text = string.Join("\n", main.Document?.Body?.Descendants<Paragraph>().Select(p => p.InnerText).Where(t => t.Length > 0) ?? []);
         segments.Add(new Segment("", text));
         AddImages(main.ImageParts, "image:", images);
     }
 
-    private static void Pptx(string path, List<Segment> segments, List<EmbeddedImage> images, CancellationToken ct)
+    private static void Pptx(Stream source, List<Segment> segments, List<EmbeddedImage> images, CancellationToken ct)
     {
-        using var doc = PresentationDocument.Open(path, false);
+        using var doc = PresentationDocument.Open(source, false);
         var pres = doc.PresentationPart ?? throw new ExtractException("no presentation part");
         var ids = pres.Presentation?.SlideIdList?.Elements<SlideId>().ToList() ?? [];
         var n = 0;
@@ -76,9 +90,9 @@ public sealed class OpenXmlExtractor : IExtractor
         }
     }
 
-    private static void Xlsx(string path, List<Segment> segments, List<EmbeddedImage> images, CancellationToken ct)
+    private static void Xlsx(Stream source, List<Segment> segments, List<EmbeddedImage> images, CancellationToken ct)
     {
-        using var doc = SpreadsheetDocument.Open(path, false);
+        using var doc = SpreadsheetDocument.Open(source, false);
         var wb = doc.WorkbookPart ?? throw new ExtractException("no workbook part");
         var shared = wb.SharedStringTablePart?.SharedStringTable?.Elements<SharedStringItem>().Select(i => i.InnerText).ToList() ?? [];
         foreach (var sheet in wb.Workbook?.Sheets?.Elements<Sheet>() ?? [])
