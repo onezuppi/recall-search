@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Hashing;
 using System.Threading.Channels;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
@@ -21,8 +22,9 @@ public sealed record RunReport(
     TimeSpan Scan, TimeSpan Hash, TimeSpan Extract, TimeSpan Ocr, TimeSpan Elapsed);
 
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
+/// <param name="pause">While paused no new root, file or embedded image is started; work in flight finishes.</param>
 public sealed class IndexRunner(
-    IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null)
+    IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
 
@@ -42,7 +44,7 @@ public sealed class IndexRunner(
         var c = new Counters();
         foreach (var root in roots.OrderByDescending(r => r.Watched))
         {
-            ct.ThrowIfCancellationRequested();
+            await WaitIfPausedAsync(ct);
             var sw = Stopwatch.StartNew();
             var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
             // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
@@ -88,6 +90,12 @@ public sealed class IndexRunner(
         return Report(c, total.Elapsed);
     }
 
+    private Task WaitIfPausedAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return pause?.WaitWhilePausedAsync(ct) ?? Task.CompletedTask;
+    }
+
     private static RunReport Report(Counters c, TimeSpan elapsed) => new(
         c.Added, c.Changed, c.Removed, c.Hashed, c.Extracted, c.Deduped, c.Failed, c.Skipped, c.MissingRoots,
         TimeSpan.FromTicks(c.ScanTicks), TimeSpan.FromTicks(c.HashTicks), TimeSpan.FromTicks(c.ExtractTicks),
@@ -102,6 +110,7 @@ public sealed class IndexRunner(
         {
             await foreach (var f in channel.Reader.ReadAllAsync(ct))
             {
+                await WaitIfPausedAsync(ct);
                 await ProcessFileAsync(f, root, c, ct);
                 progress?.Report(new RunProgress(root, Interlocked.Increment(ref done), work.Count));
             }
@@ -175,6 +184,7 @@ public sealed class IndexRunner(
         var segments = result.Segments.ToList();
         foreach (var img in result.Images)
         {
+            await WaitIfPausedAsync(ct);
             var o = Stopwatch.StartNew();
             try
             {
