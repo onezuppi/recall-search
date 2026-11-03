@@ -106,7 +106,11 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     private void StartWatcher(RootFolder root)
     {
         if (!root.Watched || !Directory.Exists(root.Path)) return;
-        var watcher = new RootWatcher(root.Path, p => _queue!.Add(root.Path, p), () => RescanSoon(root), _log);
+        // A root inside this one is watched by its own watcher (or not at all, when it is a slow folder).
+        var watcher = new RootWatcher(root.Path, p =>
+        {
+            if (!RootNesting.UnderAny(p, RootNesting.Inside(root.Path, _settings!.Config.Roots.Select(r => r.Path)))) _queue!.Add(root.Path, p);
+        }, () => RescanSoon(root), _log);
         lock (_watchers) _watchers[root.Path] = watcher;
         watcher.Start();
         _log.Info($"watching {root.Path}");
@@ -144,7 +148,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
             // A root removed while this pass waited for the gate must not come back.
             var current = roots.Where(r => _settings!.IsConfigured(r.Path)).ToList();
             _log.Info($"indexing {current.Count} root(s)");
-            LastReport = await _runner!.RunAsync(current, null, ct, mode, hints);
+            LastReport = await _runner!.RunAsync(current, null, ct, mode, hints, _settings!.Config.Roots.Select(r => r.Path).ToList());
             _lastRunUtc = DateTime.UtcNow;
             _log.Info($"pass done: {LastReport}");
         }
@@ -181,7 +185,13 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         RootWatcher? w;
         lock (_watchers) { _watchers.Remove(root.Path, out w); }
         w?.Dispose();
-        Background($"removal of {root.Path}", () => RemoveRootFilesAsync(root));
+        Background($"removal of {root.Path}", async () =>
+        {
+            await RemoveRootFilesAsync(root);
+            // The outer root's walk skipped this folder; now it owns it again.
+            var outer = _settings!.Config.Roots.Where(r => RootNesting.IsUnder(root.Path, r.Path)).ToList();
+            if (outer.Count > 0) await IndexAsync(outer, ScanMode.Full, CancellationToken.None);
+        });
     }
 
     void ISettingsEffects.SimilarityChanged(float minSimilarity)

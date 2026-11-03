@@ -58,6 +58,7 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
     private readonly object _sync = new();
     private readonly Dictionary<string, long> _listed = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _reused = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string>? _skip;
 
     public ScanStats Stats { get; } = new();
 
@@ -71,8 +72,10 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
     /// Walks one root. With <paramref name="memory"/>, a directory whose last-write time is unchanged is not listed:
     /// its remembered subdirectories are checked instead. Without it every directory is listed.
     /// </summary>
-    public IEnumerable<FileRecord> Scan(RootFolder root, CancellationToken ct, DirectoryMemory? memory = null)
+    /// <param name="skip">Folders not to enter: other roots inside this one, which are walked on their own.</param>
+    public IEnumerable<FileRecord> Scan(RootFolder root, CancellationToken ct, DirectoryMemory? memory = null, IReadOnlyCollection<string>? skip = null)
     {
+        _skip = skip is { Count: > 0 } ? new HashSet<string>(skip.Select(s => s.TrimEnd('\\', '/')), StringComparer.OrdinalIgnoreCase) : null;
         var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
         Stats.Roots.Add(rootPath);
         Stats.DirectoriesEntered++;
@@ -133,7 +136,7 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
         if (memory != null && memory.IsUnchanged(dir, mtime))
         {
             lock (_sync) { _reused.Add(dir); Stats.DirectoriesEntered += memory.ChildrenOf(dir).Count; }
-            foreach (var child in memory.ChildrenOf(dir)) push(child, new ScopeNode(child, node, policy));
+            foreach (var child in memory.ChildrenOf(dir).Where(c => _skip?.Contains(c) != true)) push(child, new ScopeNode(child, node, policy));
             return;
         }
 
@@ -151,7 +154,8 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
             if ((e.Attributes & FileAttributes.Directory) != 0)
             {
                 var decision = policy.EnterDirectory(e.FullName, e.Attributes, scope);
-                if (decision == DirectoryDecision.Enter) subdirs.Add(e.FullName); else skippedDirs.Add(decision);
+                if (decision != DirectoryDecision.Enter) skippedDirs.Add(decision);
+                else if (_skip?.Contains(e.FullName) != true) subdirs.Add(e.FullName);
                 continue;
             }
             long size;

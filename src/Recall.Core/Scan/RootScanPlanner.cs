@@ -67,8 +67,9 @@ public sealed class RootScan
     /// <summary>Directories not listed in this walk: their files in the index stay as they are.</summary>
     public IReadOnlySet<string> UnchangedDirectories => _scanner.ReusedDirectories;
 
-    public List<FileRecord> Scan(RootFolder root, CancellationToken ct) =>
-        _scanner.Scan(root, ct, IsFast ? new DirectoryMemory(_stored) : null).ToList();
+    /// <param name="nested">Other roots inside this one: their folders are not entered.</param>
+    public List<FileRecord> Scan(RootFolder root, CancellationToken ct, IReadOnlyCollection<string>? nested = null) =>
+        _scanner.Scan(root, ct, IsFast ? new DirectoryMemory(_stored) : null, nested).ToList();
 
     /// <param name="retryDirectories">Directories holding a file that was skipped for now (locked, IO error); they are listed again next time.</param>
     public void Commit(IEnumerable<string> retryDirectories)

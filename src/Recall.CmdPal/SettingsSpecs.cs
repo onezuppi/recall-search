@@ -17,7 +17,8 @@ internal static class SettingsSpecs
         Folders("Slow folders",
             "One folder per line. Scanned when the agent starts and by its periodic pass, not watched. Cheaper for big or rarely changing folders. "
             + "To move a folder between the lists, delete its line in one box and save, then add it to the other box and save. "
-            + "A folder already in the other list is moved by adding it here.",
+            + "A folder already in the other list is moved by adding it here. A fast folder may lie inside a slow one (and the other way round): "
+            + "the inner list owns that subfolder.",
             watched: false),
         new ListSpec(
             "Exclusions",

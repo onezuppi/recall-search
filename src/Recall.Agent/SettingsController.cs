@@ -70,7 +70,7 @@ public sealed class SettingsController(
     private Edit AddRoot(RecallConfig c, string? value, string? list)
     {
         if (ParseList(list ?? IpcOps.FastList) is not { } watched) return Edit.Refuse(ListError);
-        var error = _validate.Root(c, value, out var full);
+        var error = _validate.Root(c, value, watched, out var full);
         if (error != null) return Edit.Refuse(error);
         var root = new RootFolder(full, watched);
         return new Edit(c with { Roots = [.. c.Roots, root] }, After: () => effects.RootAdded(root));
@@ -89,6 +89,7 @@ public sealed class SettingsController(
         var root = c.Roots.FirstOrDefault(r => SettingsValidator.SamePath(r.Path, value));
         if (root == null) return Edit.Refuse("Folder is not in the list");
         if (root.Watched == watched) return new Edit(c);
+        if (SettingsValidator.Flip(c, root, watched) is { } clash) return Edit.Refuse(clash);
         var moved = root with { Watched = watched };
         return new Edit(c with { Roots = [.. c.Roots.Select(r => r == root ? moved : r)] }, After: () => effects.RootWatchChanged(moved));
     }

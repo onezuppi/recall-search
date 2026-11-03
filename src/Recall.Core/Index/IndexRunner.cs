@@ -33,7 +33,7 @@ public sealed class IndexRunner(
     /// <param name="mode">Full (default) walks every directory. Auto skips directories unchanged since the last pass; see <see cref="RootScanPlanner"/>.</param>
     public async Task<RunReport> RunAsync(
         IReadOnlyList<RootFolder> roots, IProgress<RunProgress>? progress, CancellationToken ct, ScanMode mode = ScanMode.Full,
-        RootHints? hints = null)
+        RootHints? hints = null, IReadOnlyCollection<string>? knownRoots = null)
     {
         var total = Stopwatch.StartNew();
         var c = new RunCounters();
@@ -45,8 +45,11 @@ public sealed class IndexRunner(
             // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
             if (!Directory.Exists(rootPath)) { c.MissingRoots++; continue; }
             var walk = planner.Begin(rootPath, mode, hints);
-            var scanned = await Task.Run(() => walk.Scan(root, ct), ct);
+            var nested = RootNesting.Inside(rootPath, (knownRoots ?? roots.Select(r => r.Path).ToList()).Select(p => Path.GetFullPath(p).TrimEnd('\\')));
+            var scanned = await Task.Run(() => walk.Scan(root, ct, nested), ct);
             var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath), walk.UnchangedDirectories);
+            // Files that now belong to a nested root are not deleted here: that root's own pass takes them over.
+            changes = changes with { Removed = [.. changes.Removed.Where(p => !RootNesting.UnderAny(p, nested))] };
             c.DirsListed += walk.DirectoriesListed;
             c.DirsReused += walk.DirectoriesReused;
             Interlocked.Add(ref c.ScanTicks, sw.ElapsedTicks);

@@ -10,7 +10,7 @@ internal sealed class SettingsValidator(Func<string, bool> isSystemPath)
     public static readonly string[] Groups = [BuiltInRules.Text, BuiltInRules.Images, BuiltInRules.Office, BuiltInRules.Pdf];
 
     /// <summary>Returns an error, or null with the normalized absolute path in <paramref name="full"/>.</summary>
-    public string? Root(RecallConfig config, string? value, out string full)
+    public string? Root(RecallConfig config, string? value, bool watched, out string full)
     {
         full = "";
         if (string.IsNullOrWhiteSpace(value)) return "Folder path is empty";
@@ -29,11 +29,18 @@ internal sealed class SettingsValidator(Func<string, bool> isSystemPath)
         foreach (var r in config.Roots)
         {
             if (SamePath(r.Path, full)) return "Folder is already in the list";
-            if (IsUnder(full, r.Path)) return $"Folder is already covered by {r.Path}";
-            if (IsUnder(r.Path, full)) return $"Folder contains {r.Path}, remove that one first";
+            if (r.Watched == watched && IsUnder(full, r.Path)) return $"Folder is already covered by {r.Path}";
+            if (r.Watched == watched && IsUnder(r.Path, full)) return $"Folder contains {r.Path}, remove that one first";
         }
         return null;
     }
+
+    /// <summary>Folders may nest only when one is fast and the other slow; two of the same kind would cover each other.</summary>
+    public static string? Flip(RecallConfig config, RootFolder root, bool watched) =>
+        config.Roots.Where(r => r != root && r.Watched == watched)
+            .Select(r => IsUnder(root.Path, r.Path) ? $"Folder is already covered by {r.Path}"
+                : IsUnder(r.Path, root.Path) ? $"Folder contains {r.Path}, remove that one first" : null)
+            .FirstOrDefault(m => m != null);
 
     public static string? Pattern(RecallConfig config, string pattern) =>
         ExcludeRules.Validate(pattern)
