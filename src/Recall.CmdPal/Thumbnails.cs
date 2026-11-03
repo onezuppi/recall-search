@@ -8,12 +8,12 @@ using Windows.Storage.Streams;
 namespace Recall.CmdPal;
 
 /// <summary>
-/// Pane-sized copies of found images. The markdown pane draws a picture at its pixel size, so a screenshot
+/// Pane-sized copies (fitted into a box, so tall phone screenshots do not scroll the pane) of found images. The markdown pane draws a picture at its pixel size, so a screenshot
 /// has to be scaled down before it is shown. Copies live in the package's real local folder, which Command Palette can read.
 /// </summary>
 internal static class Thumbnails
 {
-    private const uint Width = 320;
+    private const double MaxWidth = 220, MaxHeight = 220;
     private const int Parallelism = 4;
 
     private static readonly Lazy<string> Folder = new(() =>
@@ -64,8 +64,9 @@ internal static class Thumbnails
     {
         await using var input = File.OpenRead(path);
         var decoder = await BitmapDecoder.CreateAsync(input.AsRandomAccessStream());
-        var width = Math.Min(Width, decoder.PixelWidth);
-        var height = (uint)Math.Max(1, (long)decoder.PixelHeight * width / decoder.PixelWidth);
+        var scale = Math.Min(1.0, Math.Min(MaxWidth / decoder.PixelWidth, MaxHeight / decoder.PixelHeight));
+        var width = (uint)Math.Max(1, Math.Round(decoder.PixelWidth * scale));
+        var height = (uint)Math.Max(1, Math.Round(decoder.PixelHeight * scale));
         var transform = new BitmapTransform { ScaledWidth = width, ScaledHeight = height, InterpolationMode = BitmapInterpolationMode.Fant };
         var pixels = await decoder.GetPixelDataAsync(
             BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, transform, ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
@@ -81,5 +82,5 @@ internal static class Thumbnails
     }
 
     private static string Key(IpcHit hit) =>
-        Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes($"{hit.Path}|{hit.Modified.Ticks}|{hit.Size}|{Width}")));
+        Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes($"{hit.Path}|{hit.Modified.Ticks}|{hit.Size}|{MaxWidth}x{MaxHeight}")));
 }
