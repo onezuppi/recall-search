@@ -53,7 +53,7 @@ try
         using var store = SqliteIndexRepository.Open(dbPath);
         await EmbeddingSetup.EnsureModelAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), log.Info, shutdown.Token);
         var embedder = EmbedderHost.Create(config, EmbeddingSetup.ModelsRoot, TimeSpan.Zero);
-        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, embedder: embedder);
+        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, scanThreads: cli.ScanThreads, embedder: embedder);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         using var self = System.Diagnostics.Process.GetCurrentProcess();
         GC.Collect();

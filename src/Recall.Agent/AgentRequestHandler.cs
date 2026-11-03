@@ -9,12 +9,18 @@ public sealed class AgentRequestHandler(SearchEngine search, IIndexRepository st
 {
     private const int MaxLimit = 200;
 
+    private static readonly HashSet<string> SettingsOps =
+    [
+        IpcOps.Settings, IpcOps.AddRoot, IpcOps.RemoveRoot, IpcOps.SetWatched,
+        IpcOps.AddExclude, IpcOps.RemoveExclude, IpcOps.AddType, IpcOps.RemoveType,
+    ];
+
     public Task<IpcResponse> HandleAsync(IpcRequest request, CancellationToken ct) => Task.FromResult(request.Op switch
     {
         IpcOps.Ping => new IpcResponse(true),
         IpcOps.Status => Status(),
         IpcOps.Search => Search(request),
-        IpcOps.Settings or IpcOps.AddRoot or IpcOps.RemoveRoot or IpcOps.AddExclude or IpcOps.RemoveExclude => settings.Handle(request),
+        _ when SettingsOps.Contains(request.Op) => settings.Handle(request),
         _ => new IpcResponse(false, "unknown operation"),
     });
 

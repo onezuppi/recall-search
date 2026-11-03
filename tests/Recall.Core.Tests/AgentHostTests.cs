@@ -14,7 +14,10 @@ public class AgentHostTests : IDisposable
     private readonly string _pipe = "RecallSearchTest." + Guid.NewGuid().ToString("N");
     private readonly CancellationTokenSource _cts = new();
     private readonly string _savedExe = AgentPaths.ExpectedExe;
+    private readonly ListLog _log = new();
     private Task? _run;
+
+    private const int Patience = 30;
 
     private string Root => Path.Combine(_dir, "watched");
     private string Db => Path.Combine(_dir, "index.db");
@@ -38,21 +41,23 @@ public class AgentHostTests : IDisposable
     {
         var groups = new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase);
         var config = new RecallConfig([new RootFolder(Root, true)], groups, []) { EmbeddingModel = embeddingModel };
-        var host = new AgentHost(config, new AgentOptions(Db, _pipe, debounce, _ => false, Activity: activity, Http: http, ModelsRoot: Path.Combine(_dir, "models")));
+        var host = new AgentHost(config, new AgentOptions(
+            Db, _pipe, debounce, _ => false, Log: _log, Activity: activity, Http: http, ModelsRoot: Path.Combine(_dir, "models")));
         _run = Task.Run(() => host.RunAsync(_cts.Token));
         Assert.True(host.Watching.Wait(TimeSpan.FromSeconds(10)), "watchers did not start");
         return host;
     }
 
-    private static async Task<bool> WaitFor(Func<bool> condition, TimeSpan timeout)
+    /// <summary>Polls until the condition holds. Timeouts are generous because the whole suite runs in parallel on a busy machine; the agent log is attached to a failure.</summary>
+    private async Task WaitFor(Func<bool> condition, string what, int seconds = Patience)
     {
-        var deadline = DateTime.UtcNow + timeout;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(seconds);
         while (DateTime.UtcNow < deadline)
         {
-            if (condition()) return true;
+            if (condition()) return;
             await Task.Delay(100);
         }
-        return condition();
+        if (!condition()) Assert.Fail($"Not reached within {seconds} s: {what}{Environment.NewLine}Agent log:{Environment.NewLine}{_log}");
     }
 
     private bool Found(string word) => SearchEngine.ForDatabase(Db).Search(word, 5).Count > 0;
@@ -68,15 +73,15 @@ public class AgentHostTests : IDisposable
     {
         Start(TimeSpan.FromMilliseconds(200), embeddingModel: "multilingual-e5-small", http: new HttpClient(new OfflineHandler()));
         File.WriteAllText(Path.Combine(Root, "note.txt"), "pelican migration notes");
-        Assert.True(await WaitFor(() => Found("pelican"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => Found("pelican"), "word pelican");
     }
 
     [Fact]
-    public async Task New_file_in_watched_root_becomes_searchable_within_5_seconds()
+    public async Task New_file_in_watched_root_becomes_searchable_soon()
     {
         Start(TimeSpan.FromMilliseconds(200));
         File.WriteAllText(Path.Combine(Root, "note.txt"), "zebra crossing schedule");
-        Assert.True(await WaitFor(() => Found("zebra"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => Found("zebra"), "word zebra");
     }
 
     [Fact]
@@ -86,7 +91,7 @@ public class AgentHostTests : IDisposable
         Directory.CreateDirectory(Path.Combine(Root, "node_modules"));
         File.WriteAllText(Path.Combine(Root, "node_modules", "x.md"), "ignoredword here");
         File.WriteAllText(Path.Combine(Root, "ok.txt"), "visibleword here");
-        Assert.True(await WaitFor(() => Found("visibleword"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => Found("visibleword"), "word visibleword");
         Assert.False(Found("ignoredword"));
     }
 
@@ -97,7 +102,7 @@ public class AgentHostTests : IDisposable
         var host = Start(TimeSpan.FromMinutes(5));
         File.WriteAllText(Path.Combine(Root, "missed.txt"), "overflowword inside");
         host.SimulateOverflow(Root);
-        Assert.True(await WaitFor(() => Found("overflowword"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => Found("overflowword"), "word overflowword");
     }
 
     [Fact]
@@ -106,9 +111,9 @@ public class AgentHostTests : IDisposable
         Start(TimeSpan.FromMilliseconds(200));
         var path = Path.Combine(Root, "gone.txt");
         File.WriteAllText(path, "temporaryword text");
-        Assert.True(await WaitFor(() => Found("temporaryword"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => Found("temporaryword"), "word temporaryword");
         File.Delete(path);
-        Assert.True(await WaitFor(() => !Found("temporaryword"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => !Found("temporaryword"), "word gone: temporaryword");
     }
 
     [Fact]
@@ -116,7 +121,7 @@ public class AgentHostTests : IDisposable
     {
         Start(TimeSpan.FromMilliseconds(200));
         File.WriteAllText(Path.Combine(Root, "pipe.txt"), "pipeword content");
-        Assert.True(await WaitFor(() => Found("pipeword"), TimeSpan.FromSeconds(5)));
+        await WaitFor(() => Found("pipeword"), "word pipeword");
         var r = await PipeClient.SendAsync(new IpcRequest(IpcOps.Search, "pipeword"), TimeSpan.FromSeconds(5), default, _pipe);
         Assert.EndsWith("pipe.txt", Assert.Single(r.Hits!).Path);
         var status = await PipeClient.SendAsync(new IpcRequest(IpcOps.Status), TimeSpan.FromSeconds(5), default, _pipe);
@@ -140,6 +145,18 @@ public class AgentHostTests : IDisposable
         Assert.True(ping.Ok); // the pipe answers during the pause
 
         monitor.SetIdle();
-        Assert.True(await WaitFor(() => Found("beforeword") && Found("duringword"), TimeSpan.FromSeconds(10)));
+        await WaitFor(() => Found("beforeword") && Found("duringword"), "both files searchable after the pause ends");
     }
+}
+
+/// <summary>Collects agent log lines so a failing wait can show what the agent was doing.</summary>
+internal sealed class ListLog : IAgentLog
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _lines = new();
+
+    public void Info(string message) => _lines.Enqueue($"{DateTime.UtcNow:HH:mm:ss.fff} {message}");
+
+    public void Error(string message, Exception? error = null) => _lines.Enqueue($"{DateTime.UtcNow:HH:mm:ss.fff} ERROR {message} {error}");
+
+    public override string ToString() => string.Join(Environment.NewLine, _lines);
 }

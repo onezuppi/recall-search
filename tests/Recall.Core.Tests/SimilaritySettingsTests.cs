@@ -15,7 +15,9 @@ public class SimilaritySettingsTests : IDisposable
         public float? Similarity;
         public void RootAdded(RootFolder root) { }
         public void RootRemoved(RootFolder root) { }
+        public void RootWatchChanged(RootFolder root) { }
         public void ExcludesChanged(IReadOnlyList<string> patterns) { }
+        public void FileTypesChanged(IReadOnlyDictionary<string, string> types) { }
         public void SimilarityChanged(float minSimilarity) => Similarity = minSimilarity;
     }
 

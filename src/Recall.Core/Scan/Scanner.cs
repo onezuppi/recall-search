@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Recall.Core.Config;
 using Recall.Core.Ignore;
 
@@ -40,8 +41,11 @@ public sealed class ScanStats
     internal void Skip(FileDecision d) => FilesSkipped[d] = FilesSkipped.GetValueOrDefault(d) + 1;
 }
 
-/// <summary>Metadata walk. Excluded directories are decided before they are entered, so their children are never listed.</summary>
-public sealed class Scanner(IgnorePolicy policy)
+/// <summary>
+/// Metadata walk. Excluded directories are decided before they are entered, so their children are never listed.
+/// With <paramref name="threads"/> above 1, directories are listed concurrently; the order of the returned files is then unspecified.
+/// </summary>
+public sealed class Scanner(IgnorePolicy policy, int threads = 1)
 {
     private static readonly EnumerationOptions Options = new()
     {
@@ -51,6 +55,7 @@ public sealed class Scanner(IgnorePolicy policy)
         ReturnSpecialDirectories = false,
     };
 
+    private readonly object _sync = new();
     private readonly Dictionary<string, long> _listed = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _reused = new(StringComparer.OrdinalIgnoreCase);
 
@@ -70,55 +75,102 @@ public sealed class Scanner(IgnorePolicy policy)
     {
         var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
         Stats.Roots.Add(rootPath);
-        var stack = new Stack<(string Dir, ScopeNode Scope)>();
-        stack.Push((rootPath, new ScopeNode(rootPath, null, policy)));
         Stats.DirectoriesEntered++;
 
-        while (stack.Count > 0)
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var dirs = new BlockingCollection<(string Dir, ScopeNode Scope)>();
+        using var files = new BlockingCollection<FileRecord>();
+        var pending = 1; // directories queued or being listed; the walk ends when it reaches zero
+        dirs.Add((rootPath, new ScopeNode(rootPath, null, policy)));
+
+        void Push(string dir, ScopeNode node)
         {
-            ct.ThrowIfCancellationRequested();
-            // The directory's own timestamp: the copy in its parent's listing can be stale on NTFS.
-            var (dir, node) = stack.Pop();
-            var mtime = Directory.GetLastWriteTimeUtc(dir).Ticks;
-            if (memory != null && memory.IsUnchanged(dir, mtime))
+            Interlocked.Increment(ref pending);
+            dirs.Add((dir, node));
+        }
+
+        var workers = Enumerable.Range(0, Math.Max(1, threads)).Select(_ => Task.Factory.StartNew(() =>
+        {
+            try
             {
-                _reused.Add(dir);
-                foreach (var child in memory.ChildrenOf(dir))
+                foreach (var (dir, node) in dirs.GetConsumingEnumerable(stop.Token))
                 {
-                    Stats.DirectoriesEntered++;
-                    stack.Push((child, new ScopeNode(child, node, policy)));
+                    stop.Token.ThrowIfCancellationRequested();
+                    ListDirectory(dir, node, memory, Push, files);
+                    if (Interlocked.Decrement(ref pending) == 0) dirs.CompleteAdding();
                 }
-                continue;
             }
+            catch { stop.Cancel(); throw; }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
+        var finished = Task.WhenAll(workers).ContinueWith(_ => files.CompleteAdding(), TaskScheduler.Default);
 
-            IEnumerable<FileSystemInfo> entries;
-            try { entries = new DirectoryInfo(dir).EnumerateFileSystemInfos("*", Options).ToList(); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
-            _listed[dir] = mtime;
-            var scope = node.Scope;
-
-            foreach (var e in entries)
+        try
+        {
+            using var next = files.GetConsumingEnumerable(stop.Token).GetEnumerator();
+            while (true)
             {
-                if ((e.Attributes & FileAttributes.Directory) != 0)
-                {
-                    var decision = policy.EnterDirectory(e.FullName, e.Attributes, scope);
-                    if (decision != DirectoryDecision.Enter) { Stats.Skip(decision); continue; }
-                    Stats.DirectoriesEntered++;
-                    stack.Push((e.FullName, new ScopeNode(e.FullName, node, policy)));
-                }
-                else
-                {
-                    var fi = (FileInfo)e;
-                    long size;
-                    try { size = fi.Length; } catch (IOException) { continue; }
-                    var decision = policy.IndexFile(e.FullName, size, e.Attributes, scope);
-                    if (decision != FileDecision.Index) { Stats.Skip(decision); continue; }
-                    Stats.FilesListed++;
-                    Stats.DirectFiles[dir] = Stats.DirectFiles.GetValueOrDefault(dir) + 1;
-                    yield return new FileRecord(e.FullName, size, e.LastWriteTimeUtc,
-                        BuiltInRules.GroupOf(Path.GetExtension(e.Name))!);
-                }
+                bool has;
+                try { has = next.MoveNext(); }
+                catch (OperationCanceledException) { break; } // caller cancelled, or a worker failed and is rethrown below
+                if (!has) break;
+                yield return next.Current;
             }
         }
+        finally
+        {
+            stop.Cancel(); // also reached when the caller stops early
+            try { finished.Wait(); } catch (AggregateException) { }
+        }
+        ct.ThrowIfCancellationRequested();
+        foreach (var w in workers) if (w.IsFaulted && w.Exception!.GetBaseException() is not OperationCanceledException) throw w.Exception.GetBaseException();
+    }
+
+    private void ListDirectory(
+        string dir, ScopeNode node, DirectoryMemory? memory, Action<string, ScopeNode> push, BlockingCollection<FileRecord> files)
+    {
+        // The directory's own timestamp: the copy in its parent's listing can be stale on NTFS.
+        var mtime = Directory.GetLastWriteTimeUtc(dir).Ticks;
+        if (memory != null && memory.IsUnchanged(dir, mtime))
+        {
+            lock (_sync) { _reused.Add(dir); Stats.DirectoriesEntered += memory.ChildrenOf(dir).Count; }
+            foreach (var child in memory.ChildrenOf(dir)) push(child, new ScopeNode(child, node, policy));
+            return;
+        }
+
+        FileSystemInfo[] entries;
+        try { entries = new DirectoryInfo(dir).EnumerateFileSystemInfos("*", Options).ToArray(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return; }
+        var scope = node.Scope;
+        var found = new List<FileRecord>();
+        var subdirs = new List<string>();
+        var skippedDirs = new List<DirectoryDecision>();
+        var skippedFiles = new List<FileDecision>();
+
+        foreach (var e in entries)
+        {
+            if ((e.Attributes & FileAttributes.Directory) != 0)
+            {
+                var decision = policy.EnterDirectory(e.FullName, e.Attributes, scope);
+                if (decision == DirectoryDecision.Enter) subdirs.Add(e.FullName); else skippedDirs.Add(decision);
+                continue;
+            }
+            long size;
+            try { size = ((FileInfo)e).Length; } catch (IOException) { continue; }
+            var fileDecision = policy.IndexFile(e.FullName, size, e.Attributes, scope);
+            if (fileDecision != FileDecision.Index) { skippedFiles.Add(fileDecision); continue; }
+            found.Add(new FileRecord(e.FullName, size, e.LastWriteTimeUtc, policy.GroupOf(Path.GetExtension(e.Name))!));
+        }
+
+        lock (_sync)
+        {
+            _listed[dir] = mtime;
+            foreach (var d in skippedDirs) Stats.Skip(d);
+            foreach (var d in skippedFiles) Stats.Skip(d);
+            Stats.DirectoriesEntered += subdirs.Count;
+            Stats.FilesListed += found.Count;
+            if (found.Count > 0) Stats.DirectFiles[dir] = Stats.DirectFiles.GetValueOrDefault(dir) + found.Count;
+        }
+        foreach (var sub in subdirs) push(sub, new ScopeNode(sub, node, policy));
+        foreach (var f in found) files.Add(f);
     }
 }

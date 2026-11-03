@@ -102,6 +102,7 @@ public sealed partial class SqliteIndexRepository : IIndexRepository
         lock (_gate)
         {
             using var tx = _db.BeginTransaction();
+            var previous = ContentOf(tx, f.Path);
             using (var cmd = _db.CreateCommand())
             {
                 cmd.Transaction = tx;
@@ -119,7 +120,7 @@ public sealed partial class SqliteIndexRepository : IIndexRepository
                 cmd.Parameters.AddWithValue("$e", (object?)error ?? DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
-            DeleteOrphans(tx);
+            if (previous != null && previous != contentId) DeleteIfUnreferenced(tx, [previous.Value]);
             tx.Commit();
         }
     }
@@ -129,29 +130,47 @@ public sealed partial class SqliteIndexRepository : IIndexRepository
         lock (_gate)
         {
             using var tx = _db.BeginTransaction();
+            var released = new List<long>();
             foreach (var p in paths)
             {
+                if (ContentOf(tx, p) is { } old) released.Add(old);
                 using var cmd = _db.CreateCommand();
                 cmd.Transaction = tx;
                 cmd.CommandText = "DELETE FROM files WHERE path = $p";
                 cmd.Parameters.AddWithValue("$p", p);
                 cmd.ExecuteNonQuery();
             }
-            DeleteOrphans(tx);
+            DeleteIfUnreferenced(tx, released);
             tx.Commit();
         }
     }
 
-    private void DeleteOrphans(SqliteTransaction tx)
+    private long? ContentOf(SqliteTransaction tx, string path)
     {
         using var cmd = _db.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = """
-            DELETE FROM segments WHERE content_id IN
-              (SELECT id FROM contents WHERE id NOT IN (SELECT content_id FROM files WHERE content_id IS NOT NULL));
-            DELETE FROM contents WHERE id NOT IN (SELECT content_id FROM files WHERE content_id IS NOT NULL);
-            """;
-        cmd.ExecuteNonQuery();
+        cmd.CommandText = "SELECT content_id FROM files WHERE path = $p";
+        cmd.Parameters.AddWithValue("$p", path);
+        return cmd.ExecuteScalar() is long id ? id : null;
+    }
+
+    /// <summary>
+    /// Drops the given contents once no file uses them. Only contents a file just let go are candidates:
+    /// a content that was added but not yet linked by a parallel worker must survive.
+    /// </summary>
+    private void DeleteIfUnreferenced(SqliteTransaction tx, IEnumerable<long> candidates)
+    {
+        foreach (var id in candidates.Distinct())
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                DELETE FROM segments WHERE content_id = $c AND NOT EXISTS (SELECT 1 FROM files WHERE content_id = $c);
+                DELETE FROM contents WHERE id = $c AND NOT EXISTS (SELECT 1 FROM files WHERE content_id = $c);
+                """;
+            cmd.Parameters.AddWithValue("$c", id);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public (long Indexed, long Failed) Counts()

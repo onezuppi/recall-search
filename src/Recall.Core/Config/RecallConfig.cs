@@ -37,6 +37,9 @@ public sealed record RecallConfig(
     public float? EmbeddingMinSimilarity { get; init; }
     public IReadOnlyList<string> OcrLanguages { get; init; } = ["ru", "en-US"];
 
+    /// <summary>Extra file types: extension with the leading dot (lower case) to group name. Built-in types cannot be overridden.</summary>
+    public IReadOnlyDictionary<string, string> CustomFileTypes { get; init; } = new Dictionary<string, string>();
+
     /// <summary>Pause indexing while a full screen game or a presentation is running.</summary>
     public bool PauseWhenBusy { get; init; } = true;
 

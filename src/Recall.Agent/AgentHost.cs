@@ -4,6 +4,7 @@ using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
+using Recall.Core.Journal;
 using Recall.Core.Search;
 using Recall.Core.Ipc;
 using Recall.Core.Ocr;
@@ -21,7 +22,7 @@ namespace Recall.Agent;
 /// <param name="ModelsRoot">Null selects the models folder of the data directory.</param>
 public sealed record AgentOptions(
     string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null,
-    PauseOptions? Activity = null, string? ConfigPath = null, HttpClient? Http = null, string? ModelsRoot = null);
+    PauseOptions? Activity = null, string? ConfigPath = null, IChangeJournal? Journal = null, HttpClient? Http = null, string? ModelsRoot = null);
 
 /// <param name="Poll">How often the monitor is asked. Null selects 3 seconds.</param>
 /// <param name="ResumeDelay">Continuous idle time before work resumes. Null selects 30 seconds.</param>
@@ -69,9 +70,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         _watching.TrySetResult();
 
         await EmbeddingSetup.EnsureModelAsync(config, modelsRoot, options.Http ?? new HttpClient(), _log.Info, ct);
-
-        // Startup only has to find what changed while the agent was off; the runner falls back to a full walk when due.
-        await IndexAsync(_settings.Config.Roots, ScanMode.Auto, ct);
+        await StartupPassAsync(store, ct);
         await pipe;
         lock (_watchers) foreach (var w in _watchers.Values) w.Dispose();
     }
@@ -123,7 +122,21 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         });
     }
 
-    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct)
+    /// <summary>
+    /// Startup only has to find what changed while the agent was off. The change journal (when its service runs) names files
+    /// overwritten in place; the directory pass finds the rest; the runner falls back to a full walk when due.
+    /// </summary>
+    private async Task StartupPassAsync(IDirectoryRepository store, CancellationToken ct)
+    {
+        var catchUp = new JournalCatchUp(store, options.Journal ?? new JournalClient(), () => _policy!.IndexedExtensions);
+        var plan = await catchUp.PrepareAsync(_settings!.Config.Roots, ct);
+        _log.Info($"change journal: {plan.Covered.Count} root(s) covered, {plan.NeedsFull.Count} need a full walk");
+        await catchUp.ApplyAsync(plan, FlushAsync);
+        await IndexAsync(_settings!.Config.Roots, ScanMode.Auto, ct, plan.Hints);
+        catchUp.Commit(plan);
+    }
+
+    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct, RootHints? hints = null)
     {
         await _indexGate.WaitAsync(ct);
         try
@@ -131,7 +144,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
             // A root removed while this pass waited for the gate must not come back.
             var current = roots.Where(r => _settings!.IsConfigured(r.Path)).ToList();
             _log.Info($"indexing {current.Count} root(s)");
-            LastReport = await _runner!.RunAsync(current, null, ct, mode);
+            LastReport = await _runner!.RunAsync(current, null, ct, mode, hints);
             _lastRunUtc = DateTime.UtcNow;
             _log.Info($"pass done: {LastReport}");
         }
@@ -174,6 +187,26 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     void ISettingsEffects.SimilarityChanged(float minSimilarity)
     {
         if (_embedder != null) _embedder.MinSimilarity = minSimilarity;
+    }
+
+    void ISettingsEffects.RootWatchChanged(RootFolder root)
+    {
+        if (!root.Watched)
+        {
+            RootWatcher? w;
+            lock (_watchers) { _watchers.Remove(root.Path, out w); }
+            w?.Dispose();
+            return;
+        }
+        StartWatcher(root);
+        // Nothing observed the folder while it was in the slow list.
+        Background($"catch-up scan of {root.Path}", () => IndexAsync([root], ScanMode.Auto, CancellationToken.None));
+    }
+
+    void ISettingsEffects.FileTypesChanged(IReadOnlyDictionary<string, string> types)
+    {
+        _policy!.SetCustomTypes(types);
+        Background("rescan after file type change", () => IndexAsync(_settings!.Config.Roots, ScanMode.Full, CancellationToken.None));
     }
 
     void ISettingsEffects.ExcludesChanged(IReadOnlyList<string> patterns)

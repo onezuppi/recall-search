@@ -14,10 +14,18 @@ internal static class IndexRunnerFactory
     public static IOcr CreateOcr(RecallConfig config, int? workers = null) =>
         new WindowsOcr(config.OcrLanguages, workers ?? IndexRunner.DefaultWorkers);
 
-    public static IndexRunner Create(RecallConfig config, IIndexRepository store, IgnorePolicy policy, int? workers = null, IOcr? ocr = null, IPauseGate? pause = null, EmbedderHost? embedder = null)
+    public static IndexRunner Create(
+        RecallConfig config, IIndexRepository store, IgnorePolicy policy, int? workers = null, IOcr? ocr = null, IPauseGate? pause = null,
+        int? scanThreads = null, EmbedderHost? embedder = null)
     {
         ocr ??= CreateOcr(config, workers);
-        IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        return new IndexRunner(store, policy, extractors, ocr, workers, pause, embeddings: store as IEmbeddingRepository, embedder: embedder);
+        IExtractor[] extractors =
+        [
+            new GroupExtractor(new TextExtractor(), BuiltInRules.Text, policy.GroupOf),
+            new GroupExtractor(new OpenXmlExtractor(), BuiltInRules.Office, policy.GroupOf),
+            new GroupExtractor(new PdfExtractor(), BuiltInRules.Pdf, policy.GroupOf),
+            new GroupExtractor(new ImageExtractor(ocr), BuiltInRules.Images, policy.GroupOf),
+        ];
+        return new IndexRunner(store, policy, extractors, ocr, workers, pause, scanThreads: scanThreads, embeddings: store as IEmbeddingRepository, embedder: embedder);
     }
 }

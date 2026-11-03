@@ -4,6 +4,9 @@ using Recall.Core.Index;
 
 namespace Recall.Core.Scan;
 
+/// <summary>Per-root knowledge from the change journal. Covered: in-place writes are known, so the full-walk interval does not apply. NeedsFull: walk fully.</summary>
+public sealed record RootHints(IReadOnlySet<string> JournalCovered, IReadOnlySet<string> NeedsFull);
+
 /// <summary>Full walks every directory. Auto skips directories whose last-write time is unchanged, unless a full walk is due.</summary>
 public enum ScanMode { Full, Auto }
 
@@ -12,7 +15,7 @@ public enum ScanMode { Full, Auto }
 /// when the root was never fully walked, when the ignore configuration changed, or when the last full walk is older than
 /// the interval. A fast walk cannot see a file overwritten in place, which is what the interval bounds.
 /// </summary>
-public sealed class RootScanPlanner(IDirectoryRepository store, IgnorePolicy policy, TimeSpan? fullScanInterval = null)
+public sealed class RootScanPlanner(IDirectoryRepository store, IgnorePolicy policy, TimeSpan? fullScanInterval = null, int scanThreads = 1)
 {
     public static readonly TimeSpan DefaultFullScanInterval = TimeSpan.FromDays(7);
 
@@ -20,19 +23,20 @@ public sealed class RootScanPlanner(IDirectoryRepository store, IgnorePolicy pol
 
     internal static string StampKey(string rootPath) => "full:" + rootPath.ToLowerInvariant();
 
-    public RootScan Begin(string rootPath, ScanMode mode)
+    public RootScan Begin(string rootPath, ScanMode mode, RootHints? hints = null)
     {
         var stored = store.DirectoryTimes(rootPath);
-        var fast = mode == ScanMode.Auto && stored.Count > 0 && StampIsFresh(rootPath);
-        return new RootScan(store, policy, rootPath, stored, fast);
+        var fast = mode == ScanMode.Auto && stored.Count > 0 && hints?.NeedsFull.Contains(rootPath) != true
+                   && StampIsFresh(rootPath, hints?.JournalCovered.Contains(rootPath) == true);
+        return new RootScan(store, policy, rootPath, stored, fast, scanThreads);
     }
 
-    private bool StampIsFresh(string rootPath)
+    private bool StampIsFresh(string rootPath, bool ignoreAge)
     {
         var parts = store.GetMeta(StampKey(rootPath))?.Split('|', 2);
         return parts is { Length: 2 } && long.TryParse(parts[0], out var ticks)
             && parts[1] == policy.Fingerprint
-            && DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) < _interval;
+            && (ignoreAge || DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) < _interval);
     }
 }
 
@@ -47,10 +51,10 @@ public sealed class RootScan
     private readonly IReadOnlyDictionary<string, long> _stored;
     private readonly Scanner _scanner;
 
-    internal RootScan(IDirectoryRepository store, IgnorePolicy policy, string root, IReadOnlyDictionary<string, long> stored, bool fast)
+    internal RootScan(IDirectoryRepository store, IgnorePolicy policy, string root, IReadOnlyDictionary<string, long> stored, bool fast, int threads)
     {
         (_store, _policy, _root, _stored, IsFast) = (store, policy, root, stored, fast);
-        _scanner = new Scanner(policy);
+        _scanner = new Scanner(policy, threads);
     }
 
     public bool IsFast { get; }

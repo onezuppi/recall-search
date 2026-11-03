@@ -13,29 +13,49 @@ public class IgnorePolicy
 
     private readonly RecallConfig _config;
     private readonly Func<string, bool> _isSystemPath;
-    private volatile GitIgnoreMatcher _global;
+    private volatile ExcludeRules _global;
     private volatile IReadOnlyList<string> _globalPatterns;
+    private volatile IReadOnlyDictionary<string, string> _customTypes;
 
     public IgnorePolicy(RecallConfig config, Func<string, bool>? isSystemPath = null)
     {
         _config = config;
         _isSystemPath = isSystemPath ?? BuiltInRules.IsSystemPath;
         _globalPatterns = config.GlobalIgnorePatterns.ToList();
-        _global = GitIgnoreMatcher.Parse("", _globalPatterns);
+        _global = ExcludeRules.Parse(_globalPatterns);
+        _customTypes = Normalized(config.CustomFileTypes);
     }
+
+    /// <summary>Group of an extension (with or without the leading dot): built-in types first, then the user's own types.</summary>
+    public string? GroupOf(string extension)
+    {
+        var builtIn = BuiltInRules.GroupOf(extension);
+        if (builtIn != null || string.IsNullOrEmpty(extension)) return builtIn;
+        return _customTypes.GetValueOrDefault(extension[0] == '.' ? extension : "." + extension);
+    }
+
+    /// <summary>Every extension that maps to some group right now, built-in or the user's own.</summary>
+    public IReadOnlyCollection<string> IndexedExtensions => [.. BuiltInRules.KnownExtensions, .. _customTypes.Keys];
+
+    /// <summary>Replaces the user's own file types. Callers rescan afterwards: the fingerprint changes with them.</summary>
+    public void SetCustomTypes(IReadOnlyDictionary<string, string> types) => _customTypes = Normalized(types);
+
+    private static Dictionary<string, string> Normalized(IReadOnlyDictionary<string, string> types) =>
+        new(types, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Replaces the global exclude patterns; scans and watcher checks started afterwards use the new set.</summary>
     public void SetGlobalPatterns(IEnumerable<string> patterns)
     {
         var list = patterns.ToList();
         _globalPatterns = list;
-        _global = GitIgnoreMatcher.Parse("", list);
+        _global = ExcludeRules.Parse(list);
     }
 
     /// <summary>Everything in the configuration that decides which files are indexed. A change invalidates remembered directory state.</summary>
     public string Fingerprint => string.Join('|',
         string.Join(',', _config.EnabledGroups.Order(StringComparer.OrdinalIgnoreCase)),
         string.Join(',', _globalPatterns),
+        string.Join(',', _customTypes.OrderBy(t => t.Key, StringComparer.OrdinalIgnoreCase).Select(t => t.Key.ToLowerInvariant() + "=" + t.Value)),
         _config.MaxTextBytes, _config.MaxImageBytes);
 
     /// <summary>Virtual so tests can count which directories the scanner asks about.</summary>
@@ -53,7 +73,7 @@ public class IgnorePolicy
         var name = Path.GetFileName(fullPath);
         if (BuiltInRules.IsSecret(name)) return FileDecision.SkipSecret;
         if ((attrs & (FileAttributes.Offline | RecallOnOpen | RecallOnDataAccess)) != 0) return FileDecision.SkipCloudOnly;
-        var group = BuiltInRules.GroupOf(Path.GetExtension(name));
+        var group = GroupOf(Path.GetExtension(name));
         if (group == null || !_config.EnabledGroups.Contains(group)) return FileDecision.SkipType;
         if (Ignored(fullPath, false, scope)) return FileDecision.SkipIgnoreFile;
         var limit = group == BuiltInRules.Text ? _config.MaxTextBytes : _config.MaxImageBytes;
@@ -108,7 +128,8 @@ public class IgnorePolicy
 
     private bool Ignored(string fullPath, bool isDir, IReadOnlyList<GitIgnoreMatcher> scope)
     {
-        var result = _global.Match(fullPath, isDir);
+        if (_global.MatchesRegex(fullPath, isDir)) return true;
+        var result = _global.Globs.Match(fullPath, isDir);
         foreach (var m in scope)
         {
             var r = m.Match(fullPath, isDir);

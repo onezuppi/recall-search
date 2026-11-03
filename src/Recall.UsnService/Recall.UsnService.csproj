@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Recall.UsnService</RootNamespace>
+    <AssemblyName>Recall.UsnService</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Recall.Journal\Recall.Journal.csproj" />
+  </ItemGroup>
+</Project>
