@@ -72,4 +72,20 @@ public class ConfigTests
         var cfg = RecallConfig.Load(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json"));
         Assert.NotEmpty(cfg.Roots);
     }
+
+    [Fact]
+    public void Pause_settings_default_to_on_and_survive_a_save_load_round_trip()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "rs-cfg-" + Guid.NewGuid().ToString("N"), "config.json");
+        try
+        {
+            var cfg = new RecallConfig([], new HashSet<string>(), []) { PauseProcesses = ["game.exe"], PauseWhenBusy = false };
+            Assert.True(new RecallConfig([], new HashSet<string>(), []).PauseWhenBusy);
+            cfg.Save(path);
+            var loaded = RecallConfig.Load(path);
+            Assert.False(loaded.PauseWhenBusy);
+            Assert.Equal(["game.exe"], loaded.PauseProcesses);
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
+    }
 }

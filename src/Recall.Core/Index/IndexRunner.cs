@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Hashing;
 using System.Threading.Channels;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Embed;
 using Recall.Core.Extract;
@@ -11,29 +12,37 @@ using Recall.Core.Scan;
 namespace Recall.Core.Index;
 
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
-/// <param name="embedder">Null keeps embeddings off. Vectors are made once per pass, after the files are stored.</param>
+/// <param name="pause">While paused no new root, file or embedded image is started; work in flight finishes.</param>
+/// <param name="embeddings">With <paramref name="embedder"/>, vectors are made once per pass after the files are stored. Null keeps embeddings off.</param>
+/// <param name="fullScanInterval">Longest time a root may go without a full walk in <see cref="ScanMode.Auto"/>; null selects 7 days.</param>
 public sealed class IndexRunner(
-    IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, EmbedderHost? embedder = null)
+    IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null,
+    TimeSpan? fullScanInterval = null, IEmbeddingRepository? embeddings = null, EmbedderHost? embedder = null)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
+    private readonly RootScanPlanner planner = new(store, policy, fullScanInterval);
 
     /// <summary>Number of files processed at the same time. OCR pools should be at least this large.</summary>
     public static int DefaultWorkers { get; } = Math.Max(1, Environment.ProcessorCount / 2);
 
-    public async Task<RunReport> RunAsync(IReadOnlyList<RootFolder> roots, IProgress<RunProgress>? progress, CancellationToken ct)
+    /// <param name="mode">Full (default) walks every directory. Auto skips directories unchanged since the last pass; see <see cref="RootScanPlanner"/>.</param>
+    public async Task<RunReport> RunAsync(
+        IReadOnlyList<RootFolder> roots, IProgress<RunProgress>? progress, CancellationToken ct, ScanMode mode = ScanMode.Full)
     {
         var total = Stopwatch.StartNew();
         var c = new RunCounters();
         foreach (var root in roots.OrderByDescending(r => r.Watched))
         {
-            ct.ThrowIfCancellationRequested();
+            await WaitIfPausedAsync(ct);
             var sw = Stopwatch.StartNew();
             var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
             // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
             if (!Directory.Exists(rootPath)) { c.MissingRoots++; continue; }
-            var scanner = new Scanner(policy);
-            var scanned = await Task.Run(() => scanner.Scan(root, ct).ToList(), ct);
-            var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath));
+            var walk = planner.Begin(rootPath, mode);
+            var scanned = await Task.Run(() => walk.Scan(root, ct), ct);
+            var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath), walk.UnchangedDirectories);
+            c.DirsListed += walk.DirectoriesListed;
+            c.DirsReused += walk.DirectoriesReused;
             Interlocked.Add(ref c.ScanTicks, sw.ElapsedTicks);
 
             if (changes.Removed.Count > 0) store.RemoveFiles(changes.Removed);
@@ -43,6 +52,8 @@ public sealed class IndexRunner(
 
             var work = changes.Added.Concat(changes.Changed).OrderByDescending(f => f.LastWriteUtc).ToList();
             await ProcessAsync(work, rootPath, c, progress, ct);
+            walk.Commit(c.RetryDirectories.Keys);
+            c.RetryDirectories.Clear();
         }
         await EmbedAsync(c, ct);
         return Report(c, total.Elapsed);
@@ -74,22 +85,30 @@ public sealed class IndexRunner(
         return Report(c, total.Elapsed);
     }
 
+    private Task WaitIfPausedAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return pause?.WaitWhilePausedAsync(ct) ?? Task.CompletedTask;
+    }
+
+    /// <summary>A failing model never fails the pass: the files are already stored and searchable, the error goes to the report.</summary>
     private async Task EmbedAsync(RunCounters c, CancellationToken ct)
     {
-        if (embedder == null) return;
+        if (embeddings == null || embedder == null) return;
         try
         {
-            var stats = await new EmbeddingStage(store, embedder).RunAsync(ct);
+            var stats = await new EmbeddingStage(embeddings, embedder, waitIfPaused: WaitIfPausedAsync).RunAsync(ct);
             c.EmbeddedChunks += stats.Chunks;
             c.EmbedTicks += stats.Busy.Ticks;
         }
-        catch (EmbeddingUnavailableException) { /* the model is not downloaded; text search still works and the next pass retries */ }
+        catch (EmbeddingUnavailableException) { /* the model is not downloaded; the next pass retries */ }
+        catch (Exception e) when (e is not OperationCanceledException) { c.EmbedError = $"{e.GetType().Name}: {e.Message}"; }
     }
 
     private static RunReport Report(RunCounters c, TimeSpan elapsed) => new(
         c.Added, c.Changed, c.Removed, c.Hashed, c.Extracted, c.Deduped, c.Failed, c.Skipped, c.MissingRoots,
         TimeSpan.FromTicks(c.ScanTicks), TimeSpan.FromTicks(c.HashTicks), TimeSpan.FromTicks(c.ExtractTicks),
-        TimeSpan.FromTicks(c.OcrTicks), elapsed, c.EmbeddedChunks, TimeSpan.FromTicks(c.EmbedTicks));
+        TimeSpan.FromTicks(c.OcrTicks), elapsed, c.DirsListed, c.DirsReused, c.EmbeddedChunks, TimeSpan.FromTicks(c.EmbedTicks), c.EmbedError);
 
     private async Task ProcessAsync(List<FileRecord> work, string root, RunCounters c, IProgress<RunProgress>? progress, CancellationToken ct)
     {
@@ -100,6 +119,7 @@ public sealed class IndexRunner(
         {
             await foreach (var f in channel.Reader.ReadAllAsync(ct))
             {
+                await WaitIfPausedAsync(ct);
                 await ProcessFileAsync(f, root, c, ct);
                 progress?.Report(new RunProgress(root, Interlocked.Increment(ref done), work.Count));
             }
@@ -144,21 +164,27 @@ public sealed class IndexRunner(
                 contentId = await c.Inflight[hash].Task.WaitAsync(ct);
                 Interlocked.Increment(ref c.Deduped);
             }
-            store.UpsertFile(f, root, contentId, "ok", null);
+            store.UpsertFile(f, root, contentId, FileStatus.Ok, null);
         }
         catch (OperationCanceledException) { throw; }
-        catch (ExtractException e) when (e.Transient) { Interlocked.Increment(ref c.Skipped); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Interlocked.Increment(ref c.Skipped); }
+        catch (ExtractException e) when (e.Transient) { Retry(f, c); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Retry(f, c); }
         catch (ExtractException e)
         {
-            store.UpsertFile(f, root, null, "failed", e.Message);
+            store.UpsertFile(f, root, null, FileStatus.Failed, e.Message);
             Interlocked.Increment(ref c.Failed);
         }
         catch (Exception e)
         {
-            store.UpsertFile(f, root, null, "failed", $"{e.GetType().Name}: {e.Message}");
+            store.UpsertFile(f, root, null, FileStatus.Failed, $"{e.GetType().Name}: {e.Message}");
             Interlocked.Increment(ref c.Failed);
         }
+    }
+
+    private static void Retry(FileRecord f, RunCounters c)
+    {
+        Interlocked.Increment(ref c.Skipped);
+        c.RetryDirectories.TryAdd(Path.GetDirectoryName(f.Path)!, 0);
     }
 
     private async Task<long> ExtractAndStoreAsync(FileRecord f, UInt128 hash, RunCounters c, CancellationToken ct)
@@ -173,6 +199,7 @@ public sealed class IndexRunner(
         var segments = result.Segments.ToList();
         foreach (var img in result.Images)
         {
+            await WaitIfPausedAsync(ct);
             var o = Stopwatch.StartNew();
             try
             {

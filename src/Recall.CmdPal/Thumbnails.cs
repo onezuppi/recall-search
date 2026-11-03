@@ -15,6 +15,7 @@ internal static class Thumbnails
 {
     private const double MaxWidth = 220, MaxHeight = 220;
     private const int Parallelism = 4;
+    private const string ImagesGroup = "images";
 
     private static readonly Lazy<string> Folder = new(() =>
     {
@@ -28,7 +29,7 @@ internal static class Thumbnails
     {
         var result = new Dictionary<string, string>();
         using var gate = new SemaphoreSlim(Parallelism);
-        var tasks = hits.Where(h => h.Group == "images").Select(async h =>
+        var tasks = hits.Where(h => h.Group == ImagesGroup).Select(async h =>
         {
             await gate.WaitAsync(ct);
             try

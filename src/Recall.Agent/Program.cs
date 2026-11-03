@@ -1,10 +1,12 @@
 using Recall.Agent;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
 using Recall.Core.Ocr;
+using Recall.Core.Scan;
 
 CliOptions cli;
 try { cli = CliOptions.Parse(args); }
@@ -42,18 +44,17 @@ if (cli.EmbeddingModel != null) config = config with { EmbeddingModel = cli.Embe
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 
+PauseOptions? pause = config.PauseWhenBusy ? new PauseOptions(new WindowsActivityMonitor(config.PauseProcesses)) : null;
+
 try
 {
     if (cli.Once)
     {
-        using var store = IndexStore.Open(dbPath);
-        var ocr = new WindowsOcr(config.OcrLanguages, cli.Workers ?? IndexRunner.DefaultWorkers);
-        IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        var policy = new IgnorePolicy(config);
+        using var store = SqliteIndexRepository.Open(dbPath);
         await EmbeddingSetup.EnsureModelAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), log.Info, shutdown.Token);
         var embedder = EmbedderHost.Create(config, EmbeddingSetup.ModelsRoot, TimeSpan.Zero);
-        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers, embedder);
-        var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
+        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, embedder: embedder);
+        var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         using var self = System.Diagnostics.Process.GetCurrentProcess();
         GC.Collect();
         log.Info($"one-shot pass done: {report}; peak working set {self.PeakWorkingSet64 / (1024 * 1024)} MB, " +
@@ -61,7 +62,8 @@ try
         return 0;
     }
 
-    await new AgentHost(config, new AgentOptions(dbPath, Log: log)).RunAsync(shutdown.Token);
+    var configForSave = cli.DbPath == null && cli.Roots.Count == 0 ? configPath : null;
+    await new AgentHost(config, new AgentOptions(dbPath, Log: log, Activity: pause, ConfigPath: configForSave)).RunAsync(shutdown.Token);
     return 0;
 }
 catch (OperationCanceledException) { return 0; }

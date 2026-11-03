@@ -16,7 +16,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
     public string Space => space;
 
     /// <summary>Vector hits scoring under this cosine similarity are not shown.</summary>
-    public float MinSimilarity => minSimilarity;
+    public float MinSimilarity { get => Volatile.Read(ref minSimilarity); set => Volatile.Write(ref minSimilarity, value); }
 
     public bool IsLoaded { get { lock (_gate) return _embedder != null; } }
 
@@ -51,7 +51,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
             if (config.EmbeddingDevice != EmbeddingDevice.Cpu)
                 throw new NotSupportedException($"embedding device {config.EmbeddingDevice} is not supported yet");
             return new OnnxEmbedder(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), Math.Max(1, Environment.ProcessorCount / 2));
-        }, unloadDelay ?? TimeSpan.FromSeconds(60), spec?.MinSimilarity ?? 0f);
+        }, unloadDelay ?? TimeSpan.FromSeconds(60), config.EmbeddingMinSimilarity ?? spec?.MinSimilarity ?? 0f);
     }
 
     public Lease Acquire()

@@ -13,14 +13,30 @@ public class IgnorePolicy
 
     private readonly RecallConfig _config;
     private readonly Func<string, bool> _isSystemPath;
-    private readonly GitIgnoreMatcher _global;
+    private volatile GitIgnoreMatcher _global;
+    private volatile IReadOnlyList<string> _globalPatterns;
 
     public IgnorePolicy(RecallConfig config, Func<string, bool>? isSystemPath = null)
     {
         _config = config;
         _isSystemPath = isSystemPath ?? BuiltInRules.IsSystemPath;
-        _global = GitIgnoreMatcher.Parse("", config.GlobalIgnorePatterns);
+        _globalPatterns = config.GlobalIgnorePatterns.ToList();
+        _global = GitIgnoreMatcher.Parse("", _globalPatterns);
     }
+
+    /// <summary>Replaces the global exclude patterns; scans and watcher checks started afterwards use the new set.</summary>
+    public void SetGlobalPatterns(IEnumerable<string> patterns)
+    {
+        var list = patterns.ToList();
+        _globalPatterns = list;
+        _global = GitIgnoreMatcher.Parse("", list);
+    }
+
+    /// <summary>Everything in the configuration that decides which files are indexed. A change invalidates remembered directory state.</summary>
+    public string Fingerprint => string.Join('|',
+        string.Join(',', _config.EnabledGroups.Order(StringComparer.OrdinalIgnoreCase)),
+        string.Join(',', _globalPatterns),
+        _config.MaxTextBytes, _config.MaxImageBytes);
 
     /// <summary>Virtual so tests can count which directories the scanner asks about.</summary>
     public virtual DirectoryDecision EnterDirectory(string fullPath, FileAttributes attrs, IReadOnlyList<GitIgnoreMatcher> scope)

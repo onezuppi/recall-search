@@ -22,7 +22,8 @@ public static class EmbeddingSetup
             await new ModelDownloader(http).EnsureAsync(spec, modelsRoot, progress, ct);
             log("model downloaded and verified");
         }
-        catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException)
+        catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException
+                                  || (e is OperationCanceledException && !ct.IsCancellationRequested)) // HttpClient timeout
         {
             log($"model download failed, search stays text-only: {e.Message}");
         }

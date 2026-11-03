@@ -50,6 +50,13 @@ public sealed class ModelDownloader(HttpClient http)
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (have > 0) request.Headers.Range = new RangeHeaderValue(have, null);
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            // The partial file is complete or longer than the remote file: start over without a Range header.
+            File.Delete(part);
+            await FetchAsync(url, part, progress, ct);
+            return;
+        }
         response.EnsureSuccessStatusCode();
         var append = have > 0 && response.StatusCode == HttpStatusCode.PartialContent;
         if (!append) have = 0;

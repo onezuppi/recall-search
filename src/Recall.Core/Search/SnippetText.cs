@@ -6,6 +6,7 @@ namespace Recall.Core.Search;
 internal static partial class SnippetText
 {
     public const int SnippetMax = 160;
+    private const int LeadBefore = 18;
     private const int ContextBefore = 100;
     private const int ContextAfter = 250;
     private const string Ellipsis = "…";
@@ -18,6 +19,19 @@ internal static partial class SnippetText
     {
         s = Whitespace().Replace(s, " ").Trim();
         return s.Length <= SnippetMax ? s : s[..SnippetMax];
+    }
+
+    /// <summary>
+    /// Single line that begins a few words before the first match, so a narrow list row, which cuts the text after
+    /// about 50 characters, still shows the match. An ellipsis marks the cut start.
+    /// </summary>
+    public static string Lead(string text, IReadOnlyList<string> terms)
+    {
+        text = Whitespace().Replace(text, " ").Trim();
+        var first = terms.Select(t => text.IndexOf(t, StringComparison.OrdinalIgnoreCase)).Where(i => i >= 0).DefaultIfEmpty(-1).Min();
+        if (first <= LeadBefore) return Clean(text);
+        var start = NextWordStart(text, first - LeadBefore, first);
+        return Ellipsis + " " + Clean(text[start..]);
     }
 
     /// <summary>Short text around the first occurrence of <paramref name="term"/> (used by the fallback scan).</summary>

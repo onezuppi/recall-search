@@ -3,17 +3,10 @@ using Microsoft.Data.Sqlite;
 
 namespace Recall.Core.Index;
 
-public sealed partial class IndexStore
+public sealed partial class SqliteIndexRepository : IEmbeddingRepository
 {
-    /// <summary>Chunk number of the marker row for a segment that has no embeddable text.</summary>
-    public const int BlankChunk = -1;
-
     private const int PendingTextChars = 20_000;
 
-    /// <summary>
-    /// Segments of contents that some file with status ok points to and that have no row for <paramref name="space"/>.
-    /// Text is cut to the first 20 000 characters, which is more than the chunker uses.
-    /// </summary>
     public IReadOnlyList<PendingSegment> PendingSegments(string space, int limit)
     {
         lock (_gate)
@@ -21,7 +14,7 @@ public sealed partial class IndexStore
             using var cmd = _db.CreateCommand();
             cmd.CommandText = $"""
                 SELECT s.id, substr(s.text, 1, {PendingTextChars}) FROM segments s
-                WHERE EXISTS (SELECT 1 FROM files f WHERE f.content_id = s.content_id AND f.status = 'ok')
+                WHERE EXISTS (SELECT 1 FROM files f WHERE f.content_id = s.content_id AND f.status = '{FileStatus.Ok}')
                   AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.segment_id = s.id AND e.space = $space)
                 ORDER BY s.id LIMIT $lim
                 """;
@@ -34,27 +27,41 @@ public sealed partial class IndexStore
         }
     }
 
-    /// <summary>Stores chunk vectors in one transaction. A segment with <see cref="BlankChunk"/> and an empty vector is marked as done.</summary>
-    public void AddEmbeddings(string space, IReadOnlyList<(long SegmentId, int Chunk, float[] Vector)> rows)
+    public void AddEmbeddings(string space, IReadOnlyList<EmbeddingRow> rows)
     {
         lock (_gate)
         {
             using var tx = _db.BeginTransaction();
             using var cmd = _db.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = "INSERT OR REPLACE INTO embeddings(segment_id, space, chunk, vec) VALUES ($s,$sp,$c,$v)";
+            // A segment can be deleted while its page is being embedded, and SQLite may reuse its id for new text.
+            cmd.CommandText = """
+                INSERT OR REPLACE INTO embeddings(segment_id, space, chunk, vec)
+                SELECT $s, $sp, $c, $v WHERE EXISTS (SELECT 1 FROM segments WHERE id = $s)
+                """;
             var seg = cmd.Parameters.Add("$s", SqliteType.Integer);
             var chunk = cmd.Parameters.Add("$c", SqliteType.Integer);
             var vec = cmd.Parameters.Add("$v", SqliteType.Blob);
             cmd.Parameters.AddWithValue("$sp", space);
-            foreach (var (segmentId, c, v) in rows)
+            foreach (var row in rows)
             {
-                seg.Value = segmentId;
-                chunk.Value = c;
-                vec.Value = MemoryMarshal.AsBytes(v.AsSpan()).ToArray();
+                seg.Value = row.SegmentId;
+                chunk.Value = row.Chunk;
+                vec.Value = MemoryMarshal.AsBytes(row.Vector.AsSpan()).ToArray();
                 cmd.ExecuteNonQuery();
             }
             tx.Commit();
+        }
+    }
+
+    public void DeleteSpace(string space)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "DELETE FROM embeddings WHERE space = $space";
+            cmd.Parameters.AddWithValue("$space", space);
+            cmd.ExecuteNonQuery();
         }
     }
 }

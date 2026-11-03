@@ -17,13 +17,19 @@ internal static class IndexSchema
           error TEXT NULL);
         CREATE INDEX IF NOT EXISTS files_root ON files(root);
         CREATE INDEX IF NOT EXISTS files_content ON files(content_id);
+        CREATE TABLE IF NOT EXISTS dirs(
+          path TEXT PRIMARY KEY COLLATE NOCASE,
+          root TEXT NOT NULL COLLATE NOCASE,
+          mtime INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS dirs_root ON dirs(root);
+        CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS contents(
           id INTEGER PRIMARY KEY,
           hash BLOB NOT NULL UNIQUE,
           grp TEXT NOT NULL,
           extracted_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS segments(
-          id INTEGER PRIMARY KEY,
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
           content_id INTEGER NOT NULL,
           locator TEXT NOT NULL,
           text TEXT NOT NULL);

@@ -23,7 +23,19 @@ public sealed record RecallConfig(
     /// <summary>Id from <c>ModelCatalog</c>; null turns embeddings off.</summary>
     public string? EmbeddingModel { get; init; }
     public EmbeddingDevice EmbeddingDevice { get; init; } = EmbeddingDevice.Cpu;
+
+    /// <summary>
+    /// Cosine similarity under which a semantic hit is not shown. Null keeps the default of the chosen model.
+    /// Raise it to see fewer, surer semantic hits; lower it to see more.
+    /// </summary>
+    public float? EmbeddingMinSimilarity { get; init; }
     public IReadOnlyList<string> OcrLanguages { get; init; } = ["ru", "en-US"];
+
+    /// <summary>Pause indexing while a full screen game or a presentation is running.</summary>
+    public bool PauseWhenBusy { get; init; } = true;
+
+    /// <summary>Extra process names (with or without ".exe") that also pause indexing, for games that run windowed.</summary>
+    public IReadOnlyList<string> PauseProcesses { get; init; } = [];
 
     private static readonly JsonSerializerOptions Json = new()
     {
