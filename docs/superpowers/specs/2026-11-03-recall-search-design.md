@@ -244,8 +244,9 @@ card for EmbeddingGemma 2.)
   text-only part of EmbeddingGemma 2 (about 270M), and smaller text
   embedding models from the catalog. Choosing a text-only model turns off
   image and audio embedding; images are then found by OCR text only.
-- The NPU port covers text and vision. Audio on the NPU is not available
-  (not checked whether the port can support it); audio runs on CPU or GPU.
+- The NPU port covers text and vision. Audio on the NPU is not needed
+  (user decision); audio runs on CPU or GPU only, and the NPU option is not
+  offered for the audio role.
 
 ### 7.2 Devices
 
