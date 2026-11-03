@@ -1,4 +1,5 @@
 using Recall.Agent;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
@@ -39,6 +40,8 @@ if (cli.Roots.Count > 0)
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 
+PauseOptions? pause = config.PauseWhenBusy ? new PauseOptions(new WindowsActivityMonitor(config.PauseProcesses)) : null;
+
 try
 {
     if (cli.Once)
@@ -50,7 +53,7 @@ try
         return 0;
     }
 
-    await new AgentHost(config, new AgentOptions(dbPath, Log: log)).RunAsync(shutdown.Token);
+    await new AgentHost(config, new AgentOptions(dbPath, Log: log, Activity: pause)).RunAsync(shutdown.Token);
     return 0;
 }
 catch (OperationCanceledException) { return 0; }

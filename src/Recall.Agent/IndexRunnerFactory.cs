@@ -1,3 +1,4 @@
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
@@ -9,10 +10,13 @@ namespace Recall.Agent;
 /// <summary>Composition of the indexing pipeline: the one place that knows which extractors and which OCR engine the agent uses.</summary>
 internal static class IndexRunnerFactory
 {
-    public static IndexRunner Create(RecallConfig config, IIndexRepository store, IgnorePolicy policy, int? workers = null)
+    public static IOcr CreateOcr(RecallConfig config, int? workers = null) =>
+        new WindowsOcr(config.OcrLanguages, workers ?? IndexRunner.DefaultWorkers);
+
+    public static IndexRunner Create(RecallConfig config, IIndexRepository store, IgnorePolicy policy, int? workers = null, IOcr? ocr = null, IPauseGate? pause = null)
     {
-        var ocr = new WindowsOcr(config.OcrLanguages, workers ?? IndexRunner.DefaultWorkers);
+        ocr ??= CreateOcr(config, workers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        return new IndexRunner(store, policy, extractors, ocr, workers);
+        return new IndexRunner(store, policy, extractors, ocr, workers, pause);
     }
 }

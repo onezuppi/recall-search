@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Recall.Agent;
+using Recall.Core.Tests.Support;
 using Recall.Core.Config;
 using Recall.Core.Ipc;
 using Recall.Core.Search;
@@ -33,11 +34,11 @@ public class AgentHostTests : IDisposable
         try { Directory.Delete(_dir, true); } catch { }
     }
 
-    private AgentHost Start(TimeSpan debounce)
+    private AgentHost Start(TimeSpan debounce, PauseOptions? activity = null)
     {
         var groups = new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase);
         var config = new RecallConfig([new RootFolder(Root, true)], groups, []);
-        var host = new AgentHost(config, new AgentOptions(Db, _pipe, debounce, _ => false));
+        var host = new AgentHost(config, new AgentOptions(Db, _pipe, debounce, _ => false, Activity: activity));
         _run = Task.Run(() => host.RunAsync(_cts.Token));
         Assert.True(host.Watching.Wait(TimeSpan.FromSeconds(10)), "watchers did not start");
         return host;
@@ -106,5 +107,25 @@ public class AgentHostTests : IDisposable
         Assert.EndsWith("pipe.txt", Assert.Single(r.Hits!).Path);
         var status = await PipeClient.SendAsync(new IpcRequest(IpcOps.Status), TimeSpan.FromSeconds(5), default, _pipe);
         Assert.True(status.Status!.FilesIndexed >= 1);
+    }
+
+    [Fact]
+    public async Task Busy_user_pauses_indexing_but_not_search_and_work_resumes_when_idle()
+    {
+        File.WriteAllText(Path.Combine(Root, "before.txt"), "beforeword content");
+        var monitor = new FakeActivityMonitor("test game");
+        Start(TimeSpan.FromMilliseconds(100), new PauseOptions(monitor, TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(150)));
+        await Task.Delay(500);
+        Assert.False(Found("beforeword")); // the initial pass is held back
+
+        File.WriteAllText(Path.Combine(Root, "during.txt"), "duringword content");
+        await Task.Delay(600);
+        Assert.False(Found("duringword")); // watcher events stay queued
+
+        var ping = await PipeClient.SendAsync(new IpcRequest(IpcOps.Ping), TimeSpan.FromSeconds(5), default, _pipe);
+        Assert.True(ping.Ok); // the pipe answers during the pause
+
+        monitor.SetIdle();
+        Assert.True(await WaitFor(() => Found("beforeword") && Found("duringword"), TimeSpan.FromSeconds(10)));
     }
 }
