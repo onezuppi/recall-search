@@ -3,6 +3,7 @@ namespace Recall.Agent;
 /// <summary>
 /// Collects changed paths per root and hands them to <paramref name="flush"/> once no new event has arrived for the debounce time.
 /// Paths are deduplicated, so a file written in many chunks is reported once.
+/// While <c>isPaused</c> returns true nothing is flushed; the paths stay queued until <see cref="Resume"/>.
 /// </summary>
 public sealed class ChangeQueue : IDisposable
 {
@@ -11,10 +12,12 @@ public sealed class ChangeQueue : IDisposable
     private readonly TimeSpan _debounce;
     private readonly Func<string, IReadOnlyList<string>, Task> _flush;
     private readonly IAgentLog _log;
+    private readonly Func<bool> _isPaused;
     private readonly Timer _timer;
 
-    public ChangeQueue(TimeSpan debounce, Func<string, IReadOnlyList<string>, Task> flush, IAgentLog log)
+    public ChangeQueue(TimeSpan debounce, Func<string, IReadOnlyList<string>, Task> flush, IAgentLog log, Func<bool>? isPaused = null)
     {
+        _isPaused = isPaused ?? (() => false);
         _debounce = debounce;
         _flush = flush;
         _log = log;
@@ -36,11 +39,21 @@ public sealed class ChangeQueue : IDisposable
         }
     }
 
+    /// <summary>Call when the pause ends: flushes what was held back after the usual quiet time.</summary>
+    public void Resume()
+    {
+        lock (_gate)
+        {
+            if (_pending.Count > 0) _timer.Change(_debounce, Timeout.InfiniteTimeSpan);
+        }
+    }
+
     private async Task DrainAsync()
     {
         Dictionary<string, List<string>> batch;
         lock (_gate)
         {
+            if (_isPaused()) return; // Resume() re-arms the timer
             batch = _pending.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
             _pending.Clear();
         }

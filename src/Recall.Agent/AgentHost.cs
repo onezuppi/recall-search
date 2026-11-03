@@ -1,3 +1,4 @@
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
@@ -11,8 +12,14 @@ namespace Recall.Agent;
 /// <param name="PipeName">Null selects the per-user pipe name.</param>
 /// <param name="Debounce">Quiet time before watcher events are indexed. Null selects 2 seconds.</param>
 /// <param name="IsSystemPath">Overrides the built-in system path rule (tests run inside %TEMP%).</param>
+/// <param name="Activity">Pauses indexing while its monitor reports busy. Null never pauses.</param>
 public sealed record AgentOptions(
-    string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null);
+    string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null,
+    PauseOptions? Activity = null);
+
+/// <param name="Poll">How often the monitor is asked. Null selects 3 seconds.</param>
+/// <param name="ResumeDelay">Continuous idle time before work resumes. Null selects 30 seconds.</param>
+public sealed record PauseOptions(IActivityMonitor Monitor, TimeSpan? Poll = null, TimeSpan? ResumeDelay = null);
 
 /// <summary>Indexes the configured roots, keeps watched roots current, and answers searches on the per-user pipe.</summary>
 public sealed class AgentHost(RecallConfig config, AgentOptions options)
@@ -35,10 +42,12 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
     {
         using var store = IndexStore.Open(options.DbPath);
         _policy = new IgnorePolicy(config, options.IsSystemPath);
-        var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
+        var ocr = new ReleasableOcr(() => new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers));
+        using var gate = StartPauseGate(ocr);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        _runner = new IndexRunner(store, _policy, extractors, ocr);
-        using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log);
+        _runner = new IndexRunner(store, _policy, extractors, ocr, pause: gate);
+        using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log, () => gate?.IsPaused ?? false);
+        if (gate != null) gate.Changed += (paused, _) => { if (!paused) queue.Resume(); };
 
         var handler = new AgentRequestHandler(options.DbPath, store, queue, () => _lastRunUtc);
         var pipe = new PipeServer(handler.HandleAsync, options.PipeName).RunAsync(ct);
@@ -51,6 +60,21 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         await IndexAsync(config.Roots, ct);
         await pipe;
         foreach (var w in _watchers.Values) w.Dispose();
+    }
+
+    /// <summary>On pause the OCR engines are dropped; the log records both transitions.</summary>
+    private ActivityGate? StartPauseGate(ReleasableOcr ocr)
+    {
+        if (options.Activity == null) return null;
+        var pause = options.Activity;
+        var gate = new ActivityGate(pause.Monitor, pause.Poll ?? TimeSpan.FromSeconds(3), pause.ResumeDelay ?? TimeSpan.FromSeconds(30));
+        if (gate.IsPaused) _log.Info("indexing paused at start");
+        gate.Changed += (paused, reason) =>
+        {
+            if (paused) ocr.Release();
+            _log.Info(paused ? $"indexing paused: {reason}" : "indexing resumed");
+        };
+        return gate;
     }
 
     /// <summary>Test seam and overflow entry point: re-scan one watched root.</summary>

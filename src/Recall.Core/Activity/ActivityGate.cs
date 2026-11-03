@@ -21,7 +21,8 @@ public sealed class ActivityGate : IPauseGate, IDisposable
     {
         _monitor = monitor;
         _resumeDelay = resumeDelay;
-        _timer = new Timer(_ => Poll(), null, TimeSpan.Zero, pollInterval);
+        Poll(); // the first state is known before any work starts; nobody listens yet, so no event
+        _timer = new Timer(_ => Poll(), null, pollInterval, pollInterval);
     }
 
     public bool IsPaused
