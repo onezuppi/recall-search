@@ -48,7 +48,7 @@ try
     if (cli.Once)
     {
         using var store = SqliteIndexRepository.Open(dbPath);
-        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers);
+        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, scanThreads: cli.ScanThreads);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         log.Info($"one-shot pass done: {report}");
         return 0;

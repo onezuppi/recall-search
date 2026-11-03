@@ -24,6 +24,9 @@ public static class BuiltInRules
         return d;
     }
 
+    /// <summary>Every extension (with the leading dot) that belongs to some group.</summary>
+    public static IReadOnlyCollection<string> KnownExtensions => Groups.Keys;
+
     /// <summary>Group of an extension (with the leading dot), or null when the type is not indexed.</summary>
     public static string? GroupOf(string extension)
     {

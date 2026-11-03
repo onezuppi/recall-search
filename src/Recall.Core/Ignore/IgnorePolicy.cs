@@ -34,6 +34,9 @@ public class IgnorePolicy
         return _customTypes.GetValueOrDefault(extension[0] == '.' ? extension : "." + extension);
     }
 
+    /// <summary>Every extension that maps to some group right now, built-in or the user's own.</summary>
+    public IReadOnlyCollection<string> IndexedExtensions => [.. BuiltInRules.KnownExtensions, .. _customTypes.Keys];
+
     /// <summary>Replaces the user's own file types. Callers rescan afterwards: the fingerprint changes with them.</summary>
     public void SetCustomTypes(IReadOnlyDictionary<string, string> types) => _customTypes = Normalized(types);
 
