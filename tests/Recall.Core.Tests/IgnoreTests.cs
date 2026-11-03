@@ -156,4 +156,20 @@ public class IgnoreTests : IDisposable
         Assert.Equal(DirectoryDecision.SkipIgnoreFile,
             p.EnterDirectory(Path.Combine(_tmp, "x", "drafts"), FileAttributes.Directory, NoScope));
     }
+
+    [Fact]
+    public void Global_pattern_with_a_full_path_excludes_that_folder_only()
+    {
+        var p = Policy(Cfg(global: ["C:/projects/self/hgame/", "service-autotest-2.0*/"]));
+        Assert.Equal(DirectoryDecision.SkipIgnoreFile,
+            p.EnterDirectory(@"C:\projects\self\hgame", FileAttributes.Directory, NoScope));
+        Assert.Equal(FileDecision.SkipIgnoreFile,
+            p.IndexFile(@"C:\projects\self\hgame\docs.md", 1, FileAttributes.Normal, NoScope));
+        Assert.Equal(DirectoryDecision.Enter,
+            p.EnterDirectory(@"C:\projects\self\other", FileAttributes.Directory, NoScope));
+        Assert.Equal(DirectoryDecision.Enter,
+            p.EnterDirectory(@"C:\projects\hgame", FileAttributes.Directory, NoScope));
+        Assert.Equal(DirectoryDecision.SkipIgnoreFile,
+            p.EnterDirectory(@"C:\projects\work\service-autotest-2.0.wt", FileAttributes.Directory, NoScope));
+    }
 }
