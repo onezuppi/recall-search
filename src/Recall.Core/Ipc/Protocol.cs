@@ -8,7 +8,7 @@ namespace Recall.Core.Ipc;
 
 public sealed record IpcRequest(string Op, string? Query = null, int Limit = 48);
 
-public sealed record IpcHit(string Path, string Group, string Locator, string Snippet, DateTime Modified, long Size);
+public sealed record IpcHit(string Path, string Group, string Locator, string Snippet, DateTime Modified, long Size, string Context = "");
 
 public sealed record IpcStatus(long FilesIndexed, long FilesPending, long FilesFailed, DateTime? LastRunUtc);
 

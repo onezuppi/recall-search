@@ -1,0 +1,57 @@
+using Microsoft.CommandPalette.Extensions;
+using Microsoft.CommandPalette.Extensions.Toolkit;
+using Recall.Core.Ipc;
+using Recall.Core.Search;
+
+namespace Recall.CmdPal;
+
+/// <summary>One search hit as a list row plus a details pane: file name, highlighted context, and the picture itself for images.</summary>
+internal static class HitItem
+{
+    private const string ImagesGroup = "images";
+    private const string DocumentGlyph = "";
+
+    public static IListItem Create(IpcHit hit, IReadOnlyList<string> terms)
+    {
+        var isImage = hit.Group == ImagesGroup;
+        var folder = Path.GetDirectoryName(hit.Path) ?? "";
+        var modified = hit.Modified.ToLocalTime().ToString("g");
+        var item = new ListItem(new OpenFileCommand(hit.Path))
+        {
+            Title = Path.GetFileName(hit.Path),
+            Subtitle = hit.Snippet,
+            Icon = new IconInfo(isImage ? hit.Path : DocumentGlyph),
+            Details = new Details
+            {
+                Title = Path.GetFileName(hit.Path),
+                Body = MarkdownHighlight.Apply(hit.Context.Length > 0 ? hit.Context : hit.Snippet, terms),
+                HeroImage = isImage ? new IconInfo(hit.Path) : new IconInfo(string.Empty),
+                Metadata =
+                [
+                    Meta("Folder", folder),
+                    Meta("Size", FormatSize(hit.Size)),
+                    Meta("Modified", modified),
+                    Meta("Where", hit.Locator.Length > 0 ? hit.Locator : "whole file"),
+                ],
+            },
+            MoreCommands =
+            [
+                new CommandContextItem(new ShowInFolderCommand(hit.Path)),
+                new CommandContextItem(new CopyTextCommand(hit.Path) { Name = "Copy path" }),
+                new CommandContextItem(new CopyTextCommand(hit.Context.Length > 0 ? hit.Context : hit.Snippet) { Name = "Copy text" }),
+            ],
+        };
+        if (hit.Locator.Length > 0) item.Tags = [new Tag(hit.Locator)];
+        return item;
+    }
+
+    private static DetailsElement Meta(string key, string value) =>
+        new() { Key = key, Data = new DetailsLink { Text = value } };
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / 1048576.0:0.#} MB",
+    };
+}

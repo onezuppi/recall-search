@@ -27,10 +27,12 @@
     <ProjectCapability Include="Msix" />
   </ItemGroup>
 
-  <!-- Only the pipe contract is shared with the agent: no SQLite or document libraries in the package. -->
+  <!-- Only the pipe contract and two dependency-free helpers are shared with the core: no SQLite or document libraries in the package. -->
   <ItemGroup>
     <Compile Include="..\Recall.Core\Ipc\Protocol.cs" Link="Ipc\Protocol.cs" />
     <Compile Include="..\Recall.Core\Ipc\PipeClient.cs" Link="Ipc\PipeClient.cs" />
+    <Compile Include="..\Recall.Core\Search\QueryParser.cs" Link="Search\QueryParser.cs" />
+    <Compile Include="..\Recall.Core\Search\MarkdownHighlight.cs" Link="Search\MarkdownHighlight.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -28,7 +28,7 @@ public sealed class AgentRequestHandler(string dbPath, IndexStore store, ChangeQ
     {
         var limit = Math.Clamp(request.Limit, 1, MaxLimit);
         var hits = _search.Search(request.Query ?? "", limit)
-            .Select(h => new IpcHit(h.Path, h.Group, h.Locator, h.Snippet, h.Modified, h.Size))
+            .Select(h => new IpcHit(h.Path, h.Group, h.Locator, h.Snippet, h.Modified, h.Size, h.Context))
             .ToArray();
         return new IpcResponse(true, Hits: hits);
     }

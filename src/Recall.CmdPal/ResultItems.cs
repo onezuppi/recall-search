@@ -1,6 +1,6 @@
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
-using Recall.Core.Ipc;
+using Recall.Core.Search;
 
 namespace Recall.CmdPal;
 
@@ -12,6 +12,13 @@ internal static class ResultItems
         Title = "Type a few characters you remember",
         Subtitle = "Filters: in:folder  type:pdf  after:2026-05  before:2026  \"exact phrase\"",
     };
+
+    private static IListItem[] Hits(SearchOutcome outcome, string query)
+    {
+        var parsed = QueryParser.Parse(query);
+        var terms = parsed.Fragments.Concat(parsed.Phrases).ToList();
+        return outcome.Hits.Select(h => HitItem.Create(h, terms)).ToArray();
+    }
 
     public static IListItem[] From(SearchOutcome outcome, string query) => outcome.State switch
     {
@@ -35,46 +42,6 @@ internal static class ResultItems
             Title = $"Nothing found for \"{query}\"",
             Subtitle = "Files indexed so far are searched. A new file can take a few seconds to appear.",
         }],
-        _ => outcome.Hits.Select(Hit).ToArray(),
-    };
-
-    private static IListItem Hit(IpcHit hit)
-    {
-        var folder = Path.GetDirectoryName(hit.Path) ?? "";
-        var parts = new List<string> { folder, hit.Modified.ToLocalTime().ToString("g") };
-        if (hit.Locator.Length > 0) parts.Add(hit.Locator);
-        return new ListItem(new OpenFileCommand(hit.Path))
-        {
-            Title = hit.Snippet,
-            Subtitle = string.Join(" · ", parts),
-            Details = new Details
-            {
-                Title = Path.GetFileName(hit.Path),
-                Body = hit.Snippet,
-                Metadata =
-                [
-                    Meta("Folder", folder),
-                    Meta("Size", FormatSize(hit.Size)),
-                    Meta("Modified", hit.Modified.ToLocalTime().ToString("g")),
-                    Meta("Where", hit.Locator.Length > 0 ? hit.Locator : "whole file"),
-                ],
-            },
-            MoreCommands =
-            [
-                new CommandContextItem(new ShowInFolderCommand(hit.Path)),
-                new CommandContextItem(new CopyTextCommand(hit.Path) { Name = "Copy path" }),
-                new CommandContextItem(new CopyTextCommand(hit.Snippet) { Name = "Copy text" }),
-            ],
-        };
-    }
-
-    private static DetailsElement Meta(string key, string value) =>
-        new() { Key = key, Data = new DetailsLink { Text = value } };
-
-    private static string FormatSize(long bytes) => bytes switch
-    {
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
-        _ => $"{bytes / 1048576.0:0.#} MB",
+        _ => Hits(outcome, query),
     };
 }

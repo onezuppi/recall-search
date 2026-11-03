@@ -16,6 +16,7 @@ internal sealed partial class SearchPage : DynamicListPage
         Title = "Recall Search";
         Name = "Search";
         PlaceholderText = "Type text you remember from a document or an image";
+        ShowDetails = true;
     }
 
     public override IListItem[] GetItems() => _items;

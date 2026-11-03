@@ -135,4 +135,33 @@ public class SearchTests : IDisposable
         Assert.Empty(new SearchEngine(Db).Search("   ", 10));
         Assert.Empty(new SearchEngine(Path.Combine(_dir, "none.db")).Search("abc", 10));
     }
+
+    [Fact]
+    public void Hit_context_is_longer_than_the_snippet_and_centered_on_the_match()
+    {
+        var filler = string.Concat(Enumerable.Repeat("слово ", 120));
+        Add(@"C:\n\long.txt", "text", Now, ("", filler + "ключевая фраза найдена здесь " + filler));
+        var hit = Assert.Single(new SearchEngine(Db).Search("ключевая", 5));
+        Assert.Contains("ключевая фраза найдена здесь", hit.Context);
+        Assert.True(hit.Context.Length > hit.Snippet.Length);
+        Assert.InRange(hit.Context.Length, 200, 800);
+        Assert.StartsWith("…", hit.Context);
+        Assert.EndsWith("…", hit.Context);
+    }
+
+    [Fact]
+    public void Hit_context_has_no_leading_ellipsis_when_the_match_is_at_the_start()
+    {
+        Add(@"C:\n\short.txt", "text", Now, ("", "Шаумяна 20, офис продаж"));
+        var hit = Assert.Single(new SearchEngine(Db).Search("Шаумяна", 5));
+        Assert.Equal("Шаумяна 20, офис продаж", hit.Context);
+    }
+
+    [Fact]
+    public void File_name_only_hit_has_no_context()
+    {
+        Add(@"C:\n\contract-draft.txt", "text", Now, ("", "unrelated words"));
+        var hit = Assert.Single(new SearchEngine(Db).Search("contract", 5));
+        Assert.Equal("", hit.Context);
+    }
 }

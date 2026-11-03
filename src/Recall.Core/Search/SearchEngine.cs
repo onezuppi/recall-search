@@ -3,7 +3,13 @@ using Recall.Core.Ignore;
 
 namespace Recall.Core.Search;
 
-public sealed record SearchHit(string Path, string Group, string Locator, string Snippet, DateTime Modified, long Size, double Score);
+public sealed record SearchHit(string Path, string Group, string Locator, string Snippet, DateTime Modified, long Size, double Score)
+{
+    /// <summary>About 600 characters around the match for a details pane. Empty for file-name-only hits.</summary>
+    public string Context { get; init; } = "";
+
+    internal long SegmentId { get; init; }
+}
 
 /// <summary>
 /// Fragment search over the trigram index. Ranking: phrase hits, then all-fragments hits by bm25, then file-name hits.
@@ -12,7 +18,6 @@ public sealed record SearchHit(string Path, string Group, string Locator, string
 public sealed class SearchEngine(string dbPath)
 {
     private const int MinTrigram = 3;
-    private const int SnippetMax = 160;
 
     public IReadOnlyList<SearchHit> Search(string text, int limit)
     {
@@ -54,7 +59,20 @@ public sealed class SearchEngine(string dbPath)
         }
 
         Add(RunNames(db, q, terms, perQuery));
-        return hits;
+        return AttachContext(db, hits, terms);
+    }
+
+    private static List<SearchHit> AttachContext(SqliteConnection db, List<SearchHit> hits, IReadOnlyList<string> terms)
+    {
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT substr(text, 1, 300000) FROM segments WHERE id = $id";
+        var id = cmd.Parameters.Add("$id", SqliteType.Integer);
+        return hits.Select(h =>
+        {
+            if (h.SegmentId == 0) return h;
+            id.Value = h.SegmentId;
+            return cmd.ExecuteScalar() is string text ? h with { Context = SnippetText.Context(text, terms) } : h;
+        }).ToList();
     }
 
     private static string Quote(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
@@ -94,7 +112,7 @@ public sealed class SearchEngine(string dbPath)
         var extra = string.Concat(shortTerms.Select((_, i) => $" AND rs_contains(s.text, $s{i})"));
         using var cmd = db.CreateCommand();
         cmd.CommandText = $"""
-            SELECT f.path, c.grp, s.locator, snippet(segments_fts, 0, '', '', ' … ', 64), f.mtime, f.size, bm25(segments_fts)
+            SELECT f.path, c.grp, s.locator, snippet(segments_fts, 0, '', '', ' … ', 64), f.mtime, f.size, bm25(segments_fts), s.id
             FROM segments_fts
             JOIN segments s ON s.id = segments_fts.rowid
             JOIN contents c ON c.id = s.content_id
@@ -110,8 +128,8 @@ public sealed class SearchEngine(string dbPath)
         var list = new List<SearchHit>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new SearchHit(r.GetString(0), r.GetString(1), r.GetString(2), Clean(r.GetString(3)),
-                new DateTime(r.GetInt64(4), DateTimeKind.Utc), r.GetInt64(5), tier * 1000 - r.GetDouble(6)));
+            list.Add(new SearchHit(r.GetString(0), r.GetString(1), r.GetString(2), SnippetText.Clean(r.GetString(3)),
+                new DateTime(r.GetInt64(4), DateTimeKind.Utc), r.GetInt64(5), tier * 1000 - r.GetDouble(6)) { SegmentId = r.GetInt64(7) });
         return list;
     }
 
@@ -121,7 +139,7 @@ public sealed class SearchEngine(string dbPath)
         var conds = string.Concat(shortTerms.Select((_, i) => $" AND rs_contains(s.text, $s{i})"));
         using var cmd = db.CreateCommand();
         cmd.CommandText = $"""
-            SELECT f.path, c.grp, s.locator, substr(s.text, 1, 200000), f.mtime, f.size
+            SELECT f.path, c.grp, s.locator, substr(s.text, 1, 200000), f.mtime, f.size, s.id
             FROM segments s
             JOIN contents c ON c.id = s.content_id
             JOIN files f ON f.content_id = c.id
@@ -135,8 +153,8 @@ public sealed class SearchEngine(string dbPath)
         var list = new List<SearchHit>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new SearchHit(r.GetString(0), r.GetString(1), r.GetString(2), Around(r.GetString(3), shortTerms[0]),
-                new DateTime(r.GetInt64(4), DateTimeKind.Utc), r.GetInt64(5), 1000));
+            list.Add(new SearchHit(r.GetString(0), r.GetString(1), r.GetString(2), SnippetText.Around(r.GetString(3), shortTerms[0]),
+                new DateTime(r.GetInt64(4), DateTimeKind.Utc), r.GetInt64(5), 1000) { SegmentId = r.GetInt64(6) });
         return list;
     }
 
@@ -166,19 +184,5 @@ public sealed class SearchEngine(string dbPath)
                 new DateTime(r.GetInt64(2), DateTimeKind.Utc), r.GetInt64(3), 0));
         }
         return list;
-    }
-
-    private static string Clean(string s)
-    {
-        s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ").Trim();
-        return s.Length <= SnippetMax ? s : s[..SnippetMax];
-    }
-
-    private static string Around(string text, string term)
-    {
-        var i = text.IndexOf(term, StringComparison.OrdinalIgnoreCase);
-        if (i < 0) i = 0;
-        var start = Math.Max(0, i - 60);
-        return Clean(text.Substring(start, Math.Min(SnippetMax, text.Length - start)));
     }
 }
