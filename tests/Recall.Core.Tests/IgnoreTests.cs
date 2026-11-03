@@ -23,6 +23,7 @@ public class IgnoreTests : IDisposable
     [InlineData("node_modules")] [InlineData(".git")] [InlineData(".pnpm")] [InlineData(".angular")]
     [InlineData(".godot")] [InlineData("__pycache__")] [InlineData("site-packages")]
     [InlineData("bin")] [InlineData("obj")] [InlineData("Pods")]
+    [InlineData(".claude")] [InlineData(".codex")] [InlineData(".cursor")] [InlineData(".superpowers")]
     public void Built_in_folders_are_not_entered(string name)
     {
         var d = Path.Combine(_tmp, name);

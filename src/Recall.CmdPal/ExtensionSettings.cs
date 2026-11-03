@@ -19,7 +19,7 @@ internal sealed partial class SettingsContentPage : ContentPage
         Id = "RecallSearch.Settings";
         Title = "Recall Search settings";
         Icon = Icons.Logo;
-        _forms = [.. SettingsSpecs.All.Select(spec => new SettingsForm(_state, spec))];
+        _forms = [.. SettingsSpecs.All.Select(spec => (IContent)new SettingsForm(_state, spec)), new DefenderForm()];
         _ = _state.ReloadAsync();
     }
 

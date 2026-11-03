@@ -10,6 +10,8 @@ public static class BuiltInRules
         "bin", "obj", "target", "dist", "build", "out", "coverage", ".angular", ".next", ".nuxt", ".svelte-kit",
         ".parcel-cache", ".turbo", ".godot", ".gradle", "DerivedData", ".terraform", ".venv", "venv", "env",
         "site-packages", "__pycache__", ".mypy_cache", ".pytest_cache", ".tox", ".idea", ".vs", ".vscode", ".cache",
+        // Working folders of coding agents: transcripts, scratch files and whole repository copies (.claude\worktrees).
+        ".claude", ".codex", ".cursor", ".gemini", ".aider", ".continue", ".windsurf", ".superpowers", ".omx",
     };
 
     private static readonly Dictionary<string, string> Groups = BuildGroups();
