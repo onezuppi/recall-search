@@ -4,6 +4,7 @@ using Recall.Core.Ignore;
 using Recall.Core.Index;
 using Recall.Core.Ipc;
 using Recall.Core.Ocr;
+using Recall.Core.Scan;
 
 namespace Recall.Agent;
 
@@ -48,7 +49,8 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         StartWatchers();
         _watching.TrySetResult();
 
-        await IndexAsync(config.Roots, ct);
+        // Startup only has to find what changed while the agent was off; the runner falls back to a full walk when due.
+        await IndexAsync(config.Roots, ScanMode.Auto, ct);
         await pipe;
         foreach (var w in _watchers.Values) w.Dispose();
     }
@@ -74,18 +76,19 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
     {
         _ = Task.Run(async () =>
         {
-            try { await IndexAsync([root], CancellationToken.None); }
+            // Watcher overflow means events were lost, so trust no remembered directory time.
+            try { await IndexAsync([root], ScanMode.Full, CancellationToken.None); }
             catch (Exception e) { _log.Error($"rescan of {root.Path} failed", e); }
         });
     }
 
-    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, CancellationToken ct)
+    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct)
     {
         await _indexGate.WaitAsync(ct);
         try
         {
             _log.Info($"indexing {roots.Count} root(s)");
-            LastReport = await _runner!.RunAsync(roots, null, ct);
+            LastReport = await _runner!.RunAsync(roots, null, ct, mode);
             _lastRunUtc = DateTime.UtcNow;
             _log.Info($"pass done: {LastReport}");
         }

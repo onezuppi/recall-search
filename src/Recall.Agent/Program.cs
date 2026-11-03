@@ -4,6 +4,7 @@ using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
 using Recall.Core.Ocr;
+using Recall.Core.Scan;
 
 CliOptions cli;
 try { cli = CliOptions.Parse(args); }
@@ -48,7 +49,7 @@ try
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         var policy = new IgnorePolicy(config);
         var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers);
-        var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
+        var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         log.Info($"one-shot pass done: {report}");
         return 0;
     }

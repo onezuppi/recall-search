@@ -22,6 +22,12 @@ public class IgnorePolicy
         _global = GitIgnoreMatcher.Parse("", config.GlobalIgnorePatterns);
     }
 
+    /// <summary>Everything in the configuration that decides which files are indexed. A change invalidates remembered directory state.</summary>
+    public string Fingerprint => string.Join('|',
+        string.Join(',', _config.EnabledGroups.Order(StringComparer.OrdinalIgnoreCase)),
+        string.Join(',', _config.GlobalIgnorePatterns),
+        _config.MaxTextBytes, _config.MaxImageBytes);
+
     /// <summary>Virtual so tests can count which directories the scanner asks about.</summary>
     public virtual DirectoryDecision EnterDirectory(string fullPath, FileAttributes attrs, IReadOnlyList<GitIgnoreMatcher> scope)
     {

@@ -51,23 +51,51 @@ public sealed class Scanner(IgnorePolicy policy)
         ReturnSpecialDirectories = false,
     };
 
+    private readonly Dictionary<string, long> _listed = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _reused = new(StringComparer.OrdinalIgnoreCase);
+
     public ScanStats Stats { get; } = new();
 
-    public IEnumerable<FileRecord> Scan(RootFolder root, CancellationToken ct)
+    /// <summary>Directories whose files were enumerated, with their last-write ticks read before enumeration.</summary>
+    public IReadOnlyDictionary<string, long> ListedDirectories => _listed;
+
+    /// <summary>Directories whose stored last-write time still matched, so their files were not enumerated.</summary>
+    public IReadOnlySet<string> ReusedDirectories => _reused;
+
+    /// <summary>
+    /// Walks one root. With <paramref name="memory"/>, a directory whose last-write time is unchanged is not listed:
+    /// its remembered subdirectories are checked instead. Without it every directory is listed.
+    /// </summary>
+    public IEnumerable<FileRecord> Scan(RootFolder root, CancellationToken ct, DirectoryMemory? memory = null)
     {
         var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
         Stats.Roots.Add(rootPath);
-        var stack = new Stack<(string Dir, IReadOnlyList<GitIgnoreMatcher> Scope)>();
-        stack.Push((rootPath, policy.ScopeFor(rootPath, [])));
+        var stack = new Stack<(string Dir, ScopeNode Scope)>();
+        stack.Push((rootPath, new ScopeNode(rootPath, null, policy)));
         Stats.DirectoriesEntered++;
 
         while (stack.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
-            var (dir, scope) = stack.Pop();
+            // The directory's own timestamp: the copy in its parent's listing can be stale on NTFS.
+            var (dir, node) = stack.Pop();
+            var mtime = Directory.GetLastWriteTimeUtc(dir).Ticks;
+            if (memory != null && memory.IsUnchanged(dir, mtime))
+            {
+                _reused.Add(dir);
+                foreach (var child in memory.ChildrenOf(dir))
+                {
+                    Stats.DirectoriesEntered++;
+                    stack.Push((child, new ScopeNode(child, node, policy)));
+                }
+                continue;
+            }
+
             IEnumerable<FileSystemInfo> entries;
             try { entries = new DirectoryInfo(dir).EnumerateFileSystemInfos("*", Options).ToList(); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
+            _listed[dir] = mtime;
+            var scope = node.Scope;
 
             foreach (var e in entries)
             {
@@ -76,7 +104,7 @@ public sealed class Scanner(IgnorePolicy policy)
                     var decision = policy.EnterDirectory(e.FullName, e.Attributes, scope);
                     if (decision != DirectoryDecision.Enter) { Stats.Skip(decision); continue; }
                     Stats.DirectoriesEntered++;
-                    stack.Push((e.FullName, policy.ScopeFor(e.FullName, scope)));
+                    stack.Push((e.FullName, new ScopeNode(e.FullName, node, policy)));
                 }
                 else
                 {

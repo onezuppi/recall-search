@@ -6,7 +6,7 @@ namespace Recall.Core.Index;
 public sealed record Segment(string Locator, string Text);
 
 /// <summary>SQLite index: files point to deduplicated contents, contents own text segments, segments are FTS5 trigram indexed.</summary>
-public sealed class IndexStore : IDisposable
+public sealed partial class IndexStore : IDisposable
 {
     private readonly SqliteConnection _db;
     private readonly object _gate = new();

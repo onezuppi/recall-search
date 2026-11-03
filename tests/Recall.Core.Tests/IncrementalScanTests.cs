@@ -1,0 +1,121 @@
+using Recall.Core.Config;
+using Recall.Core.Ignore;
+using Recall.Core.Scan;
+
+namespace Recall.Core.Tests;
+
+public class IncrementalScanTests : IDisposable
+{
+    private readonly string _tmp = Path.Combine(Path.GetTempPath(), "rs-incr-" + Guid.NewGuid().ToString("N"));
+
+    public IncrementalScanTests() => Directory.CreateDirectory(_tmp);
+    public void Dispose() { try { Directory.Delete(_tmp, true); } catch { } }
+
+    private static IgnorePolicy Policy() =>
+        new(new RecallConfig([], new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase), []), _ => false);
+
+    private string P(string rel) => Path.Combine(_tmp, rel);
+
+    private string Touch(string rel, string content = "x")
+    {
+        var p = P(rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+        File.WriteAllText(p, content);
+        return p;
+    }
+
+    private (Scanner Scanner, List<FileRecord> Files) Scan(DirectoryMemory? memory = null)
+    {
+        var s = new Scanner(Policy());
+        var files = s.Scan(new RootFolder(_tmp, false), CancellationToken.None, memory).ToList();
+        return (s, files);
+    }
+
+    private DirectoryMemory Remember()
+    {
+        var full = Scan().Scanner;
+        return new DirectoryMemory(full.ListedDirectories);
+    }
+
+    private static string[] Names(IEnumerable<FileRecord> files) => files.Select(f => Path.GetFileName(f.Path)).Order().ToArray();
+
+    [Fact]
+    public void Full_scan_lists_every_directory_and_reuses_none()
+    {
+        Touch(@"a\b\1.md");
+        var (s, _) = Scan();
+        Assert.Equal(3, s.ListedDirectories.Count);
+        Assert.Empty(s.ReusedDirectories);
+    }
+
+    [Fact]
+    public void Unchanged_tree_lists_no_directory_and_returns_no_files()
+    {
+        Touch(@"a\b\1.md");
+        Touch(@"a\2.md");
+        var memory = Remember();
+        var (s, files) = Scan(memory);
+        Assert.Empty(files);
+        Assert.Empty(s.ListedDirectories);
+        Assert.Equal(3, s.ReusedDirectories.Count);
+        Assert.Contains(P(@"a\b"), s.ReusedDirectories);
+    }
+
+    [Fact]
+    public void New_file_relists_only_its_own_directory()
+    {
+        Touch(@"a\b\1.md");
+        Touch(@"top.md");
+        var memory = Remember();
+        Touch(@"a\b\new.md");
+        var (s, files) = Scan(memory);
+        Assert.Equal(["1.md", "new.md"], Names(files));
+        Assert.Equal([P(@"a\b")], s.ListedDirectories.Keys);
+        Assert.Contains(P("a"), s.ReusedDirectories);
+    }
+
+    [Fact]
+    public void New_subdirectory_is_discovered_through_its_changed_parent()
+    {
+        Touch(@"a\1.md");
+        var memory = Remember();
+        Touch(@"a\c\deep\n.md");
+        var (s, files) = Scan(memory);
+        Assert.Equal(["1.md", "n.md"], Names(files));
+        Assert.Contains(P(@"a\c\deep"), s.ListedDirectories.Keys);
+    }
+
+    [Fact]
+    public void Deleted_directory_is_not_visited()
+    {
+        Touch(@"a\b\1.md");
+        Touch(@"a\2.md");
+        var memory = Remember();
+        Directory.Delete(P(@"a\b"), true);
+        var (s, _) = Scan(memory);
+        Assert.DoesNotContain(P(@"a\b"), s.ListedDirectories.Keys);
+        Assert.DoesNotContain(P(@"a\b"), s.ReusedDirectories);
+    }
+
+    [Fact]
+    public void In_place_overwrite_is_invisible_to_a_fast_scan_but_seen_by_a_full_one()
+    {
+        var p = Touch(@"a\1.md", "short");
+        var memory = Remember();
+        File.WriteAllText(p, "much longer content");
+        Assert.Empty(Scan(memory).Files);
+        Assert.Single(Scan().Files);
+    }
+
+    [Fact]
+    public void Diff_does_not_remove_files_of_unchanged_directories()
+    {
+        var snapshot = new Dictionary<string, (long, long)>(StringComparer.OrdinalIgnoreCase)
+        {
+            [P(@"a\keep.md")] = (1, 1), [P(@"b\gone.md")] = (1, 1), [P(@"c\gone.md")] = (1, 1),
+        };
+        var reused = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { P("a") };
+        var changes = ChangeSet.Diff([], snapshot, reused);
+        Assert.Equal([P(@"b\gone.md"), P(@"c\gone.md")], changes.Removed.Order());
+    }
+}
