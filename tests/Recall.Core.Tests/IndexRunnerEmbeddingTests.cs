@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Embed;
 using Recall.Core.Extract;
@@ -49,8 +50,9 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
         Write("b.txt", "second document about bills");
         var (store, runner) = Build(HostOf(new FakeEmbedder()));
         using var _ = store;
-        await RunUntilIndexed(runner, 2);
-        Assert.Equal(2, Count("SELECT COUNT(*) FROM embeddings WHERE space = 'fake@1'"));
+        var report = await RunUntilIndexed(runner, 2);
+        Assert.True(Count("SELECT COUNT(*) FROM embeddings WHERE space = 'fake@1'") == 2,
+            $"{report} segments={Count("SELECT COUNT(*) FROM segments")} files={Count("SELECT COUNT(*) FROM files WHERE status = 'ok'")}");
     }
 
     [Fact]
@@ -145,6 +147,97 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
         Assert.Equal(0, report.Failed);
         Assert.Contains("boom", report.EmbedError);
         Assert.Equal(1, Hits("needle"));
+    }
+
+    private sealed class FakePause : IPauseGate
+    {
+        private TaskCompletionSource _resumed = new();
+        public bool IsPaused { get; private set; }
+        public void Pause() { IsPaused = true; _resumed = new(TaskCreationOptions.RunContinuationsAsynchronously); }
+        public void Resume() { IsPaused = false; _resumed.SetResult(); }
+        public Task WaitWhilePausedAsync(CancellationToken ct) => IsPaused ? _resumed.Task.WaitAsync(ct) : Task.CompletedTask;
+    }
+
+    private static void AddSegments(SqliteIndexRepository store, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var id = store.AddContent((UInt128)(i + 1), "text", [new Segment("", "document number " + i)]);
+            store.UpsertFile(new FileRecord($@"C:\d{i}.txt", 1, DateTime.UtcNow, "text"), @"C:\d", id, "ok", null);
+        }
+    }
+
+    private static async Task<bool> WaitFor(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(50);
+        return condition();
+    }
+
+    [Fact]
+    public async Task Pause_drops_the_model_keeps_pending_segments_and_resume_loads_it_again()
+    {
+        using var store = SqliteIndexRepository.Open(Db);
+        AddSegments(store, 4);
+        var pause = new FakePause();
+        var loads = 0;
+        var fake = new FakeEmbedder();
+        var host = new EmbedderHost(fake.Space, () => { loads++; return fake; }, TimeSpan.FromMinutes(5));
+        fake.OnEmbed = () => { if (fake.Calls == 1) pause.Pause(); };
+        var run = new EmbeddingStage(store, host, pageSize: 2, pause: pause).RunAsync(default);
+
+        Assert.True(await WaitFor(() => pause.IsPaused && !host.IsLoaded), "the model stayed loaded while paused");
+        Assert.Equal(2, store.PendingSegments(fake.Space, 10).Count);
+        Assert.False(run.IsCompleted);
+
+        pause.Resume();
+        await run;
+        Assert.Empty(store.PendingSegments(fake.Space, 10));
+        Assert.Equal(2, loads);
+    }
+
+    [Fact]
+    public async Task Pending_segments_resume_after_a_restart()
+    {
+        using (var first = SqliteIndexRepository.Open(Db))
+        {
+            AddSegments(first, 4);
+            var cts = new CancellationTokenSource();
+            var fake = new FakeEmbedder { OnEmbed = cts.Cancel };
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new EmbeddingStage(first, HostOf(fake), pageSize: 2).RunAsync(cts.Token));
+        }
+        SqliteConnection.ClearAllPools();
+        using var second = SqliteIndexRepository.Open(Db);
+        Assert.Equal(2, second.PendingSegments("fake@1", 10).Count);
+        var again = new FakeEmbedder();
+        await new EmbeddingStage(second, HostOf(again), pageSize: 2).RunAsync(default);
+        Assert.Equal(2, again.Texts);
+        Assert.Empty(second.PendingSegments("fake@1", 10));
+    }
+
+    [Fact]
+    public async Task Identical_files_share_one_vector()
+    {
+        Write("a.txt", "same text in two files");
+        Write("b.txt", "same text in two files");
+        var fake = new FakeEmbedder();
+        var (store, runner) = Build(HostOf(fake));
+        using var _ = store;
+        await RunUntilIndexed(runner, 2);
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM embeddings"));
+        Assert.Equal(1, fake.Texts);
+    }
+
+    [Fact]
+    public async Task Vectors_disappear_with_the_file()
+    {
+        var path = Write("a.txt", "doomed text");
+        var (store, runner) = Build(HostOf(new FakeEmbedder()));
+        using var _ = store;
+        await RunUntilIndexed(runner, 1);
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM embeddings"));
+        File.Delete(path);
+        await runner.RunAsync([R()], null, default);
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM embeddings"));
     }
 
     [Fact]

@@ -8,10 +8,13 @@ namespace Recall.Core.Embed;
 /// </summary>
 public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan unloadDelay, float minSimilarity = 0f) : IDisposable
 {
+    private static readonly IReadOnlyList<IEmbedderProvider> DefaultProviders = [new OnnxE5Provider()];
+
     private readonly object _gate = new();
     private IEmbedder? _embedder;
     private int _leases;
     private CancellationTokenSource? _pendingUnload;
+    private bool _releasePending;
 
     public string Space => space;
 
@@ -35,12 +38,12 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0) _host.Release();
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) _host.EndLease();
         }
     }
 
     /// <summary>The configured host, or null when embeddings are off. A device other than CPU fails when the model is first needed.</summary>
-    public static EmbedderHost? Create(RecallConfig config, string modelsRoot, TimeSpan? unloadDelay = null)
+    public static EmbedderHost? Create(RecallConfig config, string modelsRoot, TimeSpan? unloadDelay = null, IReadOnlyList<IEmbedderProvider>? providers = null)
     {
         if (config.EmbeddingModel == null) return null;
         var spec = ModelCatalog.Find(config.EmbeddingModel);
@@ -48,9 +51,9 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
         return new EmbedderHost(space, () =>
         {
             if (spec == null) throw new EmbeddingUnavailableException($"unknown embedding model '{config.EmbeddingModel}'");
-            if (config.EmbeddingDevice != EmbeddingDevice.Cpu)
-                throw new NotSupportedException($"embedding device {config.EmbeddingDevice} is not supported yet");
-            return new OnnxEmbedder(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), Math.Max(1, Environment.ProcessorCount / 2));
+            var provider = (providers ?? DefaultProviders).FirstOrDefault(p => p.Supports(spec, config.EmbeddingDevice))
+                ?? throw new NotSupportedException($"model {spec.Id} cannot run on {config.EmbeddingDevice} yet");
+            return provider.Create(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), config.EmbeddingDevice);
         }, unloadDelay ?? TimeSpan.FromSeconds(60), config.EmbeddingMinSimilarity ?? spec?.MinSimilarity ?? 0f);
     }
 
@@ -60,18 +63,30 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
         {
             _pendingUnload?.Cancel();
             _pendingUnload = null;
+            _releasePending = false;
             _embedder ??= factory();
             _leases++;
             return new Lease(this, _embedder);
         }
     }
 
-    private void Release()
+    /// <summary>Drops the model now, or when the running leases end. The agent calls this while it is paused.</summary>
+    public void Release()
+    {
+        lock (_gate)
+        {
+            _pendingUnload?.Cancel();
+            if (_leases == 0) Unload();
+            else _releasePending = true;
+        }
+    }
+
+    private void EndLease()
     {
         lock (_gate)
         {
             if (--_leases > 0) return;
-            if (unloadDelay <= TimeSpan.Zero) { Unload(); return; }
+            if (_releasePending || unloadDelay <= TimeSpan.Zero) { Unload(); return; }
             var cts = _pendingUnload = new CancellationTokenSource();
             _ = Task.Delay(unloadDelay, cts.Token).ContinueWith(t =>
             {
@@ -88,6 +103,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
         _embedder?.Dispose();
         _embedder = null;
         _pendingUnload = null;
+        _releasePending = false;
     }
 
     public void Dispose()

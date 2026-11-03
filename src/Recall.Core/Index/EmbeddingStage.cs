@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Recall.Core.Activity;
 using Recall.Core.Embed;
 
 namespace Recall.Core.Index;
@@ -9,9 +10,9 @@ public sealed record EmbedStats(long Segments, long Chunks, TimeSpan Busy);
 /// Fills the vectors of stored segments that have none in the host's embedding space. Work goes in pages; a page is stored
 /// in one transaction, so a cancelled run keeps every finished page. The model is loaded only when a page is pending.
 /// </summary>
-/// <param name="waitIfPaused">Called before every page, so that a paused agent does not start new model work.</param>
+/// <param name="pause">Checked before every page. While paused the model is dropped, and it is loaded again on resume. Pending segments stay in the index.</param>
 public sealed class EmbeddingStage(
-    IEmbeddingRepository repository, EmbedderHost host, int pageSize = 64, Func<CancellationToken, Task>? waitIfPaused = null)
+    IEmbeddingRepository repository, EmbedderHost host, int pageSize = 64, IPauseGate? pause = null)
 {
     private const int BatchChunks = 16;
 
@@ -25,7 +26,13 @@ public sealed class EmbeddingStage(
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                if (waitIfPaused != null) await waitIfPaused(ct);
+                if (pause is { IsPaused: true })
+                {
+                    lease?.Dispose();
+                    lease = null;
+                    host.Release();
+                    await pause.WaitWhilePausedAsync(ct);
+                }
                 var page = repository.PendingSegments(host.Space, pageSize);
                 if (page.Count == 0) break;
                 lease ??= host.Acquire();

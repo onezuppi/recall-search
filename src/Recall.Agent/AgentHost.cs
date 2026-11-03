@@ -53,9 +53,9 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         _settings = new SettingsController(config, options.ConfigPath, options.IsSystemPath, this);
         _policy = new IgnorePolicy(config, options.IsSystemPath);
         var ocr = new ReleasableOcr(() => IndexRunnerFactory.CreateOcr(config));
-        using var gate = StartPauseGate(ocr);
         var modelsRoot = options.ModelsRoot ?? EmbeddingSetup.ModelsRoot;
         var embedder = _embedder = EmbedderHost.Create(config, modelsRoot);
+        using var gate = StartPauseGate(ocr);
         _runner = IndexRunnerFactory.Create(config, store, _policy, ocr: ocr, pause: gate, embedder: embedder);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log, () => gate?.IsPaused ?? false);
         if (gate != null) gate.Changed += (paused, _) => { if (!paused) queue.Resume(); };
@@ -85,7 +85,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         if (gate.IsPaused) _log.Info("indexing paused at start");
         gate.Changed += (paused, reason) =>
         {
-            if (paused) ocr.Release();
+            if (paused) { ocr.Release(); _embedder?.Release(); }
             _log.Info(paused ? $"indexing paused: {reason}" : "indexing resumed");
         };
         return gate;

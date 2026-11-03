@@ -97,7 +97,7 @@ public sealed class IndexRunner(
         if (embeddings == null || embedder == null) return;
         try
         {
-            var stats = await new EmbeddingStage(embeddings, embedder, waitIfPaused: WaitIfPausedAsync).RunAsync(ct);
+            var stats = await new EmbeddingStage(embeddings, embedder, pause: pause).RunAsync(ct);
             c.EmbeddedChunks += stats.Chunks;
             c.EmbedTicks += stats.Busy.Ticks;
         }

@@ -70,4 +70,30 @@ public class EmbedHostTests
         var cfg = Config() with { EmbeddingModel = "nope" };
         Assert.Throws<EmbeddingUnavailableException>(() => EmbedderHost.Create(cfg, "unused")!.Acquire());
     }
+
+    private sealed class FakeProvider(FakeEmbedder embedder) : IEmbedderProvider
+    {
+        public bool Supports(ModelSpec spec, EmbeddingDevice device) => device == EmbeddingDevice.Npu;
+        public IEmbedder Create(ModelSpec spec, string modelDir, EmbeddingDevice device) => embedder;
+    }
+
+    [Fact]
+    public void A_new_provider_serves_a_device_without_other_changes()
+    {
+        var fake = new FakeEmbedder();
+        var cfg = Config() with { EmbeddingModel = "multilingual-e5-small", EmbeddingDevice = EmbeddingDevice.Npu };
+        using var lease = EmbedderHost.Create(cfg, "unused", providers: [new FakeProvider(fake)])!.Acquire();
+        Assert.Same(fake, lease.Embedder);
+    }
+
+    [Fact]
+    public void Release_drops_the_model_after_the_running_lease_ends()
+    {
+        var (host, _) = Make(TimeSpan.FromMinutes(5));
+        var lease = host.Acquire();
+        host.Release();
+        Assert.True(host.IsLoaded);
+        lease.Dispose();
+        Assert.False(host.IsLoaded);
+    }
 }
