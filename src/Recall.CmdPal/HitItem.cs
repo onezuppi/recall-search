@@ -36,7 +36,7 @@ internal static class HitItem
                 new CommandContextItem(new CopyTextCommand(hit.Context.Length > 0 ? hit.Context : hit.Snippet) { Name = "Copy text" }),
             ],
         };
-        if (hit.Locator.Length > 0) item.Tags = [new Tag(hit.Locator)];
+        item.Tags = Tags(hit, terms);
         return item;
     }
 
@@ -45,6 +45,17 @@ internal static class HitItem
     {
         var text = MarkdownHighlight.Apply(hit.Context.Length > 0 ? hit.Context : hit.Snippet, terms);
         return thumbnail is null ? text : $"![]({new Uri(thumbnail).AbsoluteUri})\n\n{text}";
+    }
+
+    /// <summary>A colored badge with the searched word sits at the row's right edge, which a narrow row never cuts off.</summary>
+    private static ITag[] Tags(IpcHit hit, IReadOnlyList<string> terms)
+    {
+        var tags = new List<ITag>();
+        var term = terms.FirstOrDefault(t => t.Length > 0 && hit.Snippet.Contains(t, StringComparison.OrdinalIgnoreCase));
+        if (term is not null)
+            tags.Add(new Tag(term) { Background = ColorHelpers.FromRgb(255, 214, 10), Foreground = ColorHelpers.FromRgb(20, 20, 20) });
+        if (hit.Locator.Length > 0) tags.Add(new Tag(hit.Locator));
+        return tags.ToArray();
     }
 
     private static DetailsElement Meta(string key, string value) =>

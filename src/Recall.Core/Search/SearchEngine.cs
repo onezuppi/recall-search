@@ -71,7 +71,9 @@ public sealed class SearchEngine(string dbPath)
         {
             if (h.SegmentId == 0) return h;
             id.Value = h.SegmentId;
-            return cmd.ExecuteScalar() is string text ? h with { Context = SnippetText.Context(text, terms) } : h;
+            return cmd.ExecuteScalar() is string text
+                ? h with { Context = SnippetText.Context(text, terms), Snippet = SnippetText.Lead(text, terms) }
+                : h;
         }).ToList();
     }
 

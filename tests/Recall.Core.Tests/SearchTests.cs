@@ -150,6 +150,17 @@ public class SearchTests : IDisposable
     }
 
     [Fact]
+    public void Hit_snippet_starts_just_before_the_match_so_a_narrow_row_still_shows_it()
+    {
+        var filler = string.Concat(Enumerable.Repeat("слово ", 120));
+        Add(@"C:\n\long2.txt", "text", Now, ("", filler + "ключевая фраза найдена здесь " + filler));
+        var hit = Assert.Single(new SearchEngine(Db).Search("ключевая", 5));
+        Assert.StartsWith("… ", hit.Snippet);
+        Assert.InRange(hit.Snippet.IndexOf("ключевая", StringComparison.Ordinal), 0, 25);
+        Assert.True(hit.Snippet.Length <= 170);
+    }
+
+    [Fact]
     public void Hit_context_has_no_leading_ellipsis_when_the_match_is_at_the_start()
     {
         Add(@"C:\n\short.txt", "text", Now, ("", "Шаумяна 20, офис продаж"));
