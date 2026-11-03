@@ -8,19 +8,15 @@ namespace Recall.CmdPal;
 /// <summary>One search hit as a list row plus a details pane: file name, highlighted context, and the picture itself for images.</summary>
 internal static class HitItem
 {
-    private const string ImagesGroup = "images";
-    private const string DocumentGlyph = "";
-
     public static IListItem Create(IpcHit hit, IReadOnlyList<string> terms, string? thumbnail)
     {
-        var isImage = hit.Group == ImagesGroup;
         var folder = Path.GetDirectoryName(hit.Path) ?? "";
         var modified = hit.Modified.ToLocalTime().ToString("g");
         var item = new ListItem(new OpenFileCommand(hit.Path))
         {
             Title = Path.GetFileName(hit.Path),
             Subtitle = hit.Snippet,
-            Icon = new IconInfo(isImage ? hit.Path : DocumentGlyph),
+            Icon = new IconInfo(hit.Path),
             Details = new Details
             {
                 Title = Path.GetFileName(hit.Path),
