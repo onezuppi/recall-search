@@ -21,9 +21,10 @@ internal sealed partial class SearchFallbackItem : FallbackCommandItem
             Subtitle = string.Empty;
             return;
         }
-        _page.Seed(query);
         Title = $"Search files for \"{query}\"";
         Subtitle = "Recall Search";
         Command = _page;
+        try { _page.Seed(query); }
+        catch (Exception e) { Subtitle = "Recall Search: " + e.GetType().Name; }
     }
 }

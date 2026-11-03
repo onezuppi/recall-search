@@ -51,7 +51,9 @@ internal sealed partial class SearchPage : DynamicListPage
         {
             var outcome = await _session.SearchAsync(query, cts.Token);
             if (cts.IsCancellationRequested) return;
-            Publish(ResultItems.From(outcome, query));
+            var thumbnails = await Thumbnails.ForAsync(outcome.Hits, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            Publish(ResultItems.From(outcome, query, thumbnails));
         }
         catch (OperationCanceledException) { return; }
         finally

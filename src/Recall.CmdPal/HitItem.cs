@@ -11,7 +11,7 @@ internal static class HitItem
     private const string ImagesGroup = "images";
     private const string DocumentGlyph = "";
 
-    public static IListItem Create(IpcHit hit, IReadOnlyList<string> terms)
+    public static IListItem Create(IpcHit hit, IReadOnlyList<string> terms, string? thumbnail)
     {
         var isImage = hit.Group == ImagesGroup;
         var folder = Path.GetDirectoryName(hit.Path) ?? "";
@@ -24,7 +24,7 @@ internal static class HitItem
             Details = new Details
             {
                 Title = Path.GetFileName(hit.Path),
-                Body = Body(hit, terms, isImage),
+                Body = Body(hit, terms, thumbnail),
                 Metadata =
                 [
                     Meta("Folder", folder),
@@ -44,12 +44,11 @@ internal static class HitItem
         return item;
     }
 
-    /// <summary>The hero slot draws icon-sized pictures, so an image goes into the markdown body where it gets the full pane width.</summary>
-    private static string Body(IpcHit hit, IReadOnlyList<string> terms, bool isImage)
+    /// <summary>The hero slot draws icon-sized pictures, so a picture goes into the markdown body as a pane-sized thumbnail.</summary>
+    private static string Body(IpcHit hit, IReadOnlyList<string> terms, string? thumbnail)
     {
         var text = MarkdownHighlight.Apply(hit.Context.Length > 0 ? hit.Context : hit.Snippet, terms);
-        if (!isImage) return text;
-        return $"![]({new Uri(hit.Path).AbsoluteUri})\n\n{text}";
+        return thumbnail is null ? text : $"![]({new Uri(thumbnail).AbsoluteUri})\n\n{text}";
     }
 
     private static DetailsElement Meta(string key, string value) =>

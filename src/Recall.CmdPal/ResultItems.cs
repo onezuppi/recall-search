@@ -13,14 +13,14 @@ internal static class ResultItems
         Subtitle = "Filters: in:folder  type:pdf  after:2026-05  before:2026  \"exact phrase\"",
     };
 
-    private static IListItem[] Hits(SearchOutcome outcome, string query)
+    private static IListItem[] Hits(SearchOutcome outcome, string query, IReadOnlyDictionary<string, string> thumbnails)
     {
         var parsed = QueryParser.Parse(query);
         var terms = parsed.Fragments.Concat(parsed.Phrases).ToList();
-        return outcome.Hits.Select(h => HitItem.Create(h, terms)).ToArray();
+        return outcome.Hits.Select(h => HitItem.Create(h, terms, thumbnails.GetValueOrDefault(h.Path))).ToArray();
     }
 
-    public static IListItem[] From(SearchOutcome outcome, string query) => outcome.State switch
+    public static IListItem[] From(SearchOutcome outcome, string query, IReadOnlyDictionary<string, string> thumbnails) => outcome.State switch
     {
         SearchState.AgentNotRunning => [new ListItem(new StartAgentCommand())
         {
@@ -42,6 +42,6 @@ internal static class ResultItems
             Title = $"Nothing found for \"{query}\"",
             Subtitle = "Files indexed so far are searched. A new file can take a few seconds to appear.",
         }],
-        _ => Hits(outcome, query),
+        _ => Hits(outcome, query, thumbnails),
     };
 }
