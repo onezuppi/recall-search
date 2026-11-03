@@ -3,7 +3,7 @@ using Microsoft.CommandPalette.Extensions.Toolkit;
 
 namespace Recall.CmdPal;
 
-/// <summary>The "Extension settings" section on the extension's page in Command Palette settings: indexed folders and exclusions.</summary>
+/// <summary>The "Extension settings" section on the extension's page in Command Palette settings: indexed folders, exclusions and the semantic search threshold.</summary>
 internal sealed partial class ExtensionSettings : ICommandSettings
 {
     public IContentPage SettingsPage { get; } = new SettingsContentPage();
@@ -29,6 +29,7 @@ internal sealed partial class SettingsContentPage : ContentPage
                 "Exclusions", "No exclusions yet.", "Pattern, for example *.log, node_modules/, secret*.txt", "Add exclusion",
                 s => s.Excludes.Select(p => (p, p)),
                 SettingsClient.AddExcludeAsync, SettingsClient.RemoveExcludeAsync)),
+            new SimilarityForm(_state),
         ];
         _ = _state.ReloadAsync();
     }

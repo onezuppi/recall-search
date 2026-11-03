@@ -23,6 +23,8 @@ internal static class SettingsClient
 
     public static Task<SettingsResult> RemoveExcludeAsync(string pattern) => CallAsync(IpcOps.RemoveExclude, pattern);
 
+    public static Task<SettingsResult> SetSimilarityAsync(string value) => CallAsync(IpcOps.SetSimilarity, value);
+
     private static async Task<SettingsResult> CallAsync(string op, string? value)
     {
         if (!PipeClient.IsListening()) return new SettingsResult(null, "The Recall Search agent is not running.");

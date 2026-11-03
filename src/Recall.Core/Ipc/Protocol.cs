@@ -15,7 +15,8 @@ public sealed record IpcStatus(long FilesIndexed, long FilesPending, long FilesF
 
 public sealed record IpcRoot(string Path, bool Watched);
 
-public sealed record IpcSettings(IpcRoot[] Roots, string[] Excludes);
+/// <param name="MinSimilarity">Cosine similarity under which a semantic hit is hidden. Null when semantic search is off.</param>
+public sealed record IpcSettings(IpcRoot[] Roots, string[] Excludes, double? MinSimilarity = null);
 
 public sealed record IpcResponse(bool Ok, string? Error = null, IpcHit[]? Hits = null, IpcStatus? Status = null, IpcSettings? Settings = null);
 
@@ -24,6 +25,7 @@ public static class IpcOps
     public const string Search = "search", Status = "status", Ping = "ping";
     public const string Settings = "settings", AddRoot = "add-root", RemoveRoot = "remove-root";
     public const string AddExclude = "add-exclude", RemoveExclude = "remove-exclude";
+    public const string SetSimilarity = "set-similarity";
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

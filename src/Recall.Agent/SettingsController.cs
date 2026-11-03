@@ -1,4 +1,6 @@
+using System.Globalization;
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Ignore;
 using Recall.Core.Ipc;
 
@@ -10,6 +12,7 @@ public interface ISettingsEffects
     void RootAdded(RootFolder root);
     void RootRemoved(RootFolder root);
     void ExcludesChanged(IReadOnlyList<string> patterns);
+    void SimilarityChanged(float minSimilarity);
 }
 
 /// <summary>
@@ -32,7 +35,7 @@ public sealed class SettingsController(
     public IpcSettings Snapshot()
     {
         var c = Config;
-        return new IpcSettings([.. c.Roots.Select(r => new IpcRoot(r.Path, r.Watched))], [.. c.GlobalIgnorePatterns]);
+        return new IpcSettings([.. c.Roots.Select(r => new IpcRoot(r.Path, r.Watched))], [.. c.GlobalIgnorePatterns], MinSimilarity(c));
     }
 
     public IpcResponse Handle(IpcRequest request) => request.Op switch
@@ -42,8 +45,29 @@ public sealed class SettingsController(
         IpcOps.RemoveRoot => RemoveRoot(request.Value),
         IpcOps.AddExclude => AddExclude(request.Value),
         IpcOps.RemoveExclude => RemoveExclude(request.Value),
+        IpcOps.SetSimilarity => SetSimilarity(request.Value),
         _ => new IpcResponse(false, "unknown operation"),
     };
+
+    /// <summary>The effective floor: the user's value, else the default of the chosen model. Null while semantic search is off.</summary>
+    private static double? MinSimilarity(RecallConfig c) =>
+        c.EmbeddingModel == null ? null : c.EmbeddingMinSimilarity ?? ModelCatalog.Find(c.EmbeddingModel)?.MinSimilarity;
+
+    private IpcResponse SetSimilarity(string? value)
+    {
+        // The extension sends what the user typed: accept both "0.84" and "0,84".
+        if (!float.TryParse(value?.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            || !float.IsFinite(number) || number is < 0f or > 1f)
+            return new IpcResponse(false, "similarity must be a number from 0 to 1");
+        lock (_gate)
+        {
+            if (_config.EmbeddingModel == null) return new IpcResponse(false, "semantic search is off in config.json");
+            var failure = Commit(_config with { EmbeddingMinSimilarity = number });
+            if (failure != null) return failure;
+        }
+        effects.SimilarityChanged(number);
+        return Ok();
+    }
 
     private IpcResponse Ok() => new(true, Settings: Snapshot());
 

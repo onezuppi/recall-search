@@ -37,6 +37,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     private SettingsController? _settings;
     private IIndexRepository? _store;
     private IndexRunner? _runner;
+    private EmbedderHost? _embedder;
     private ChangeQueue? _queue;
     private IgnorePolicy? _policy;
     private DateTime? _lastRunUtc;
@@ -54,7 +55,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         var ocr = new ReleasableOcr(() => IndexRunnerFactory.CreateOcr(config));
         using var gate = StartPauseGate(ocr);
         var modelsRoot = options.ModelsRoot ?? EmbeddingSetup.ModelsRoot;
-        var embedder = EmbedderHost.Create(config, modelsRoot);
+        var embedder = _embedder = EmbedderHost.Create(config, modelsRoot);
         _runner = IndexRunnerFactory.Create(config, store, _policy, ocr: ocr, pause: gate, embedder: embedder);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log, () => gate?.IsPaused ?? false);
         if (gate != null) gate.Changed += (paused, _) => { if (!paused) queue.Resume(); };
@@ -168,6 +169,11 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         lock (_watchers) { _watchers.Remove(root.Path, out w); }
         w?.Dispose();
         Background($"removal of {root.Path}", () => RemoveRootFilesAsync(root));
+    }
+
+    void ISettingsEffects.SimilarityChanged(float minSimilarity)
+    {
+        if (_embedder != null) _embedder.MinSimilarity = minSimilarity;
     }
 
     void ISettingsEffects.ExcludesChanged(IReadOnlyList<string> patterns)
