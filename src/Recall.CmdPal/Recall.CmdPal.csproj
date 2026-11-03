@@ -19,7 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\*.png" />
+    <Content Include="Assets\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
