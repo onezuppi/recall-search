@@ -50,7 +50,8 @@ try
         var ocr = new WindowsOcr(config.OcrLanguages, cli.Workers ?? IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         var policy = new IgnorePolicy(config);
-        var embedder = await EmbeddingSetup.PrepareAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), TimeSpan.Zero, log.Info, shutdown.Token);
+        await EmbeddingSetup.EnsureModelAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), log.Info, shutdown.Token);
+        var embedder = EmbedderHost.Create(config, EmbeddingSetup.ModelsRoot, TimeSpan.Zero);
         var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers, embedder);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
         using var self = System.Diagnostics.Process.GetCurrentProcess();

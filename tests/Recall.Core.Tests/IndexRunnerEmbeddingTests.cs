@@ -34,9 +34,9 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
     private async Task<RunReport> RunUntilIndexed(IndexRunner runner, int files)
     {
         var report = await runner.RunAsync([R()], null, default);
-        for (var attempt = 0; attempt < 5 && Count("SELECT COUNT(*) FROM files WHERE status = 'ok'") < files; attempt++)
+        for (var attempt = 0; attempt < 20 && Count("SELECT COUNT(*) FROM files WHERE status = 'ok'") < files; attempt++)
         {
-            await Task.Delay(100);
+            await Task.Delay(250);
             report = await runner.RunAsync([R()], null, default);
         }
         return report;

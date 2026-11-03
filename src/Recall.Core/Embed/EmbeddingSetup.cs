@@ -2,20 +2,18 @@ using Recall.Core.Config;
 
 namespace Recall.Core.Embed;
 
-/// <summary>Builds the model host from the config and downloads the model when it is missing. A failed download is logged, not fatal.</summary>
+/// <summary>Downloads the configured model when it is missing. A failed download is logged, not fatal.</summary>
 public static class EmbeddingSetup
 {
     public static string ModelsRoot => Path.Combine(RecallPaths.DataDir, "models");
 
-    /// <summary>Null when embeddings are off in the config.</summary>
-    public static async Task<EmbedderHost?> PrepareAsync(
-        RecallConfig config, string modelsRoot, HttpClient http, TimeSpan unloadDelay, Action<string> log, CancellationToken ct)
+    /// <summary>Downloads the configured model when it is missing. Does nothing when embeddings are off.</summary>
+    public static async Task EnsureModelAsync(RecallConfig config, string modelsRoot, HttpClient http, Action<string> log, CancellationToken ct)
     {
-        var host = EmbedderHost.Create(config, modelsRoot, unloadDelay);
-        if (host == null) return null;
-        var spec = ModelCatalog.Find(config.EmbeddingModel!);
-        if (spec == null) { log($"unknown embedding model '{config.EmbeddingModel}'"); return host; }
-        if (ModelDownloader.IsDownloaded(modelsRoot, spec)) return host;
+        if (config.EmbeddingModel == null) return;
+        var spec = ModelCatalog.Find(config.EmbeddingModel);
+        if (spec == null) { log($"unknown embedding model '{config.EmbeddingModel}'"); return; }
+        if (ModelDownloader.IsDownloaded(modelsRoot, spec)) return;
         try
         {
             var next = 0.1;
@@ -28,6 +26,5 @@ public static class EmbeddingSetup
         {
             log($"model download failed, search stays text-only: {e.Message}");
         }
-        return host;
     }
 }

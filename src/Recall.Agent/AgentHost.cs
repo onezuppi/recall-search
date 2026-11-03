@@ -41,8 +41,8 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         _policy = new IgnorePolicy(config, options.IsSystemPath);
         var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        var embedder = await EmbeddingSetup.PrepareAsync(config, options.ModelsRoot ?? EmbeddingSetup.ModelsRoot,
-            options.Http ?? new HttpClient(), TimeSpan.FromSeconds(60), _log.Info, ct);
+        var modelsRoot = options.ModelsRoot ?? EmbeddingSetup.ModelsRoot;
+        var embedder = EmbedderHost.Create(config, modelsRoot);
         _runner = new IndexRunner(store, _policy, extractors, ocr, embedder: embedder);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log);
 
@@ -54,6 +54,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         StartWatchers();
         _watching.TrySetResult();
 
+        await EmbeddingSetup.EnsureModelAsync(config, modelsRoot, options.Http ?? new HttpClient(), _log.Info, ct);
         await IndexAsync(config.Roots, ct);
         await pipe;
         foreach (var w in _watchers.Values) w.Dispose();
