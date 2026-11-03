@@ -37,6 +37,8 @@ if (cli.DbPath == null && !File.Exists(configPath)) config.Save(configPath);
 if (cli.Roots.Count > 0)
     config = config with { Roots = cli.Roots.Select(r => new RootFolder(Path.GetFullPath(r), false)).ToList() };
 
+if (cli.EmbeddingModel != null) config = config with { EmbeddingModel = cli.EmbeddingModel };
+
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 
@@ -51,7 +53,10 @@ try
         var embedder = await EmbeddingSetup.PrepareAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), TimeSpan.Zero, log.Info, shutdown.Token);
         var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers, embedder);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
-        log.Info($"one-shot pass done: {report}");
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        GC.Collect();
+        log.Info($"one-shot pass done: {report}; peak working set {self.PeakWorkingSet64 / (1024 * 1024)} MB, " +
+                 $"current {Environment.WorkingSet / (1024 * 1024)} MB");
         return 0;
     }
 

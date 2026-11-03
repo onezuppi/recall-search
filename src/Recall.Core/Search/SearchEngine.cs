@@ -22,8 +22,6 @@ public sealed class SearchEngine(string dbPath, EmbedderHost? embedder = null)
     private const int MinTrigram = 3;
     private const int HybridPoolFactor = 3;
 
-    /// <summary>Cosine similarity under which a vector hit is not shown (calibrated in docs/benchmarks).</summary>
-    internal const float MinSimilarity = 0.0f;
 
     public IReadOnlyList<SearchHit> Search(string text, int limit)
     {
@@ -83,7 +81,7 @@ public sealed class SearchEngine(string dbPath, EmbedderHost? embedder = null)
         {
             using var lease = embedder.Acquire();
             var vector = lease.Embedder.Embed([string.Join(" ", terms)], EmbedKind.Query)[0];
-            return VectorSearch.Find(db, q, vector, embedder.Space, limit, MinSimilarity);
+            return VectorSearch.Find(db, q, vector, embedder.Space, limit, embedder.MinSimilarity);
         }
         catch (EmbeddingUnavailableException) { return []; }
     }

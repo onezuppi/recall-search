@@ -6,7 +6,7 @@ namespace Recall.Core.Embed;
 /// Loads the embedding model on first use and unloads it <paramref name="unloadDelay"/> after the last lease ends, so the
 /// model is in memory only while indexing or answering a query. <see cref="Space"/> is known without loading.
 /// </summary>
-public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan unloadDelay) : IDisposable
+public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan unloadDelay, float minSimilarity = 0f) : IDisposable
 {
     private readonly object _gate = new();
     private IEmbedder? _embedder;
@@ -14,6 +14,9 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
     private CancellationTokenSource? _pendingUnload;
 
     public string Space => space;
+
+    /// <summary>Vector hits scoring under this cosine similarity are not shown.</summary>
+    public float MinSimilarity => minSimilarity;
 
     public bool IsLoaded { get { lock (_gate) return _embedder != null; } }
 
@@ -48,7 +51,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
             if (config.EmbeddingDevice != EmbeddingDevice.Cpu)
                 throw new NotSupportedException($"embedding device {config.EmbeddingDevice} is not supported yet");
             return new OnnxEmbedder(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), Math.Max(1, Environment.ProcessorCount / 2));
-        }, unloadDelay ?? TimeSpan.FromSeconds(60));
+        }, unloadDelay ?? TimeSpan.FromSeconds(60), spec?.MinSimilarity ?? 0f);
     }
 
     public Lease Acquire()
