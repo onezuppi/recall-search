@@ -45,6 +45,33 @@ public class IgnorePolicy
         return FileDecision.Index;
     }
 
+    /// <summary>
+    /// True when a single existing file passes every rule, including those of each ancestor folder below the root.
+    /// Used for watcher events, where no scan has built the ignore scope.
+    /// </summary>
+    public bool Allows(string rootPath, string filePath, long size, FileAttributes attrs)
+    {
+        var root = Path.GetFullPath(rootPath).TrimEnd('\\');
+        var chain = new Stack<string>();
+        for (var d = Path.GetDirectoryName(filePath);
+             d != null && d.Length > root.Length && d.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+             d = Path.GetDirectoryName(d))
+            chain.Push(d);
+        if (!filePath.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var scope = ScopeFor(root, []);
+        try
+        {
+            foreach (var dir in chain)
+            {
+                if (EnterDirectory(dir, File.GetAttributes(dir), scope) != DirectoryDecision.Enter) return false;
+                scope = ScopeFor(dir, scope);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+        return IndexFile(filePath, size, attrs, scope) == FileDecision.Index;
+    }
+
     public IReadOnlyList<GitIgnoreMatcher> ScopeFor(string dir, IReadOnlyList<GitIgnoreMatcher> parentScope)
     {
         List<GitIgnoreMatcher>? added = null;

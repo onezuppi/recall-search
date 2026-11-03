@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Recall.Agent</RootNamespace>
+    <AssemblyName>Recall.Agent</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Recall.Core\Recall.Core.csproj" />
+  </ItemGroup>
+</Project>

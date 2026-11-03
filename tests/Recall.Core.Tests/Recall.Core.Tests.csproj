@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Recall.Core\Recall.Core.csproj" />
+    <ProjectReference Include="..\..\src\Recall.Agent\Recall.Agent.csproj" />
   </ItemGroup>
   <ItemGroup><Using Include="Xunit" /></ItemGroup>
 </Project>
