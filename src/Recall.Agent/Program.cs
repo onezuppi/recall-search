@@ -18,12 +18,18 @@ var configPath = Path.Combine(dataDir, "config.json");
 var dbPath = cli.DbPath ?? Path.Combine(dataDir, "index.db");
 var log = new RollingLog(Path.Combine(dataDir, "recall.log"), echoToConsole: cli.Once);
 
-using var instance = new Mutex(true, @"Local\RecallSearch.Agent", out var isFirst);
-if (cli.DbPath == null && !isFirst)
+// Runs against another index (--db) are side runs such as benchmarks: they must not block or be blocked by the real agent.
+Mutex? instance = null;
+if (cli.DbPath == null)
 {
-    Console.Error.WriteLine("Recall agent is already running for this user.");
-    return 2;
+    instance = new Mutex(true, @"Local\RecallSearch.Agent", out var isFirst);
+    if (!isFirst)
+    {
+        Console.Error.WriteLine("Recall agent is already running for this user.");
+        return 2;
+    }
 }
+using var instanceGuard = instance;
 
 var config = RecallConfig.Load(configPath);
 if (cli.DbPath == null && !File.Exists(configPath)) config.Save(configPath);
