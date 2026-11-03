@@ -1,6 +1,6 @@
 # Recall Search: design
 
-Status: draft, not approved. Date: 2026-11-03.
+Status: approved by the user on 2026-11-03.
 
 ## 1. Intent
 
