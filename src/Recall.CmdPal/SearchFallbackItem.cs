@@ -8,7 +8,7 @@ internal sealed partial class SearchFallbackItem : FallbackCommandItem
     private const int MinQueryLength = 3;
     private readonly SearchPage _page = new(new SearchSession());
 
-    public SearchFallbackItem(string id) : base(new SearchPage(new SearchSession()), "Search files", id)
+    public SearchFallbackItem(string id) : base(new SearchPage(new SearchSession()), "Search files by content", id)
     {
         Icon = Icons.Logo;
     }
@@ -17,8 +17,8 @@ internal sealed partial class SearchFallbackItem : FallbackCommandItem
     {
         if (query.Trim().Length < MinQueryLength)
         {
-            Title = string.Empty;
-            Subtitle = string.Empty;
+            Title = "Search files by content";
+            Subtitle = "Recall Search: type at least 3 characters";
             return;
         }
         Title = $"Search files for \"{query}\"";
