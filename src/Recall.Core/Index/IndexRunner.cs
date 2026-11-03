@@ -23,12 +23,13 @@ public sealed record RunReport(
 
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
 /// <param name="fullScanInterval">Longest time a root may go without a full walk in <see cref="ScanMode.Auto"/>; null selects 7 days.</param>
+/// <param name="scanThreads">Directories listed at the same time during a scan.</param>
 public sealed class IndexRunner(
     IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null,
-    TimeSpan? fullScanInterval = null)
+    TimeSpan? fullScanInterval = null, int scanThreads = 1)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
-    private readonly RootScanPlanner planner = new(store, policy, fullScanInterval);
+    private readonly RootScanPlanner planner = new(store, policy, fullScanInterval, scanThreads);
 
     private sealed class Counters
     {

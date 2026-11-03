@@ -118,4 +118,29 @@ public class IncrementalScanTests : IDisposable
         var changes = ChangeSet.Diff([], snapshot, reused);
         Assert.Equal([P(@"b\gone.md"), P(@"c\gone.md")], changes.Removed.Order());
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public void Concurrent_walk_returns_the_same_files_and_statistics(int threads)
+    {
+        for (var d = 0; d < 20; d++)
+            for (var f = 0; f < 5; f++) Touch($"d{d}/sub{d % 3}/f{f}.md");
+        var s = new Scanner(Policy(), threads);
+        var files = s.Scan(new RootFolder(_tmp, false), CancellationToken.None).ToList();
+        Assert.Equal(100, files.Count);
+        Assert.Equal(100, s.Stats.FilesListed);
+        Assert.Equal(1 + 20 + 20, s.Stats.DirectoriesEntered);
+        Assert.Equal(41, s.ListedDirectories.Count);
+    }
+
+    [Fact]
+    public void Concurrent_walk_stops_when_cancelled()
+    {
+        for (var d = 0; d < 20; d++) Touch($"d{d}/f.md");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var s = new Scanner(Policy(), 4);
+        Assert.Throws<OperationCanceledException>(() => s.Scan(new RootFolder(_tmp, false), cts.Token).ToList());
+    }
 }

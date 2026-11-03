@@ -48,7 +48,7 @@ try
         var ocr = new WindowsOcr(config.OcrLanguages, cli.Workers ?? IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         var policy = new IgnorePolicy(config);
-        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers);
+        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers, scanThreads: cli.ScanThreads);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         log.Info($"one-shot pass done: {report}");
         return 0;
