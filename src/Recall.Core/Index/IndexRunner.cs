@@ -89,7 +89,7 @@ public sealed class IndexRunner(
         {
             var fi = new FileInfo(p);
             if (!fi.Exists) { gone.Add(p); continue; }
-            var group = BuiltInRules.GroupOf(fi.Extension);
+            var group = policy.GroupOf(fi.Extension);
             if (group == null) continue;
             var rec = new FileRecord(fi.FullName, fi.Length, fi.LastWriteTimeUtc, group);
             var state = store.FileState(fi.FullName);

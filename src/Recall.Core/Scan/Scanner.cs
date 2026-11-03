@@ -116,7 +116,7 @@ public sealed class Scanner(IgnorePolicy policy)
                     Stats.FilesListed++;
                     Stats.DirectFiles[dir] = Stats.DirectFiles.GetValueOrDefault(dir) + 1;
                     yield return new FileRecord(e.FullName, size, e.LastWriteTimeUtc,
-                        BuiltInRules.GroupOf(Path.GetExtension(e.Name))!);
+                        policy.GroupOf(Path.GetExtension(e.Name))!);
                 }
             }
         }
