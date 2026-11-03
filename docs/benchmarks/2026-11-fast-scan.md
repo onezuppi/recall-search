@@ -28,3 +28,25 @@ Pass 2 time is mostly the 16 files that changed during pass 1 (28 directories re
 A fast pass cannot see a file overwritten in place, because the directory time does not change. A full walk is forced
 at least every 7 days, after any ignore-configuration change, and after a watcher overflow. Not measured: the share of
 real edits that are in-place overwrites.
+
+## Concurrent directory listing (same index, full walk, nothing changed)
+
+Same four roots, same index, run back to back. The agent lists N directories at the same time (`--scan-threads N`).
+
+| Threads | Wall time (full walk, nothing changed) |
+|---|---|
+| 1 | 4 min 39 s |
+| 4 | 2 min 20 s |
+| 8 | 1 min 18 s |
+| 16 | 44.7 s |
+
+The 1 thread figure differs from the 6 min 5 s above because the disk cache was warmer and the folder contents moved
+a little. Compare only the rows of this table with each other. 16 threads is about 6 times faster than 1.
+The default is `clamp(logical cores, 4, 16)`.
+
+## Not measured
+
+- The change-journal service: it needs administrator rights and was written and unit-tested here without being run on
+  this machine. Its pass time with real journal data is unknown. Expect it to cost one pipe call plus the same
+  directory-time pass as pass 3.
+- Whether the Defender process exclusion changes any of these figures.

@@ -4,6 +4,9 @@ using Recall.Core.Index;
 
 namespace Recall.Core.Scan;
 
+/// <summary>Per-root knowledge from the change journal. Covered: in-place writes are known, so the full-walk interval does not apply. NeedsFull: walk fully.</summary>
+public sealed record RootHints(IReadOnlySet<string> JournalCovered, IReadOnlySet<string> NeedsFull);
+
 /// <summary>Full walks every directory. Auto skips directories whose last-write time is unchanged, unless a full walk is due.</summary>
 public enum ScanMode { Full, Auto }
 
@@ -20,19 +23,20 @@ public sealed class RootScanPlanner(IndexStore store, IgnorePolicy policy, TimeS
 
     internal static string StampKey(string rootPath) => "full:" + rootPath.ToLowerInvariant();
 
-    public RootScan Begin(string rootPath, ScanMode mode)
+    public RootScan Begin(string rootPath, ScanMode mode, RootHints? hints = null)
     {
         var stored = store.DirectoryTimes(rootPath);
-        var fast = mode == ScanMode.Auto && stored.Count > 0 && StampIsFresh(rootPath);
+        var fast = mode == ScanMode.Auto && stored.Count > 0 && hints?.NeedsFull.Contains(rootPath) != true
+                   && StampIsFresh(rootPath, hints?.JournalCovered.Contains(rootPath) == true);
         return new RootScan(store, policy, rootPath, stored, fast, scanThreads);
     }
 
-    private bool StampIsFresh(string rootPath)
+    private bool StampIsFresh(string rootPath, bool ignoreAge)
     {
         var parts = store.GetMeta(StampKey(rootPath))?.Split('|', 2);
         return parts is { Length: 2 } && long.TryParse(parts[0], out var ticks)
             && parts[1] == policy.Fingerprint
-            && DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) < _interval;
+            && (ignoreAge || DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) < _interval);
     }
 }
 

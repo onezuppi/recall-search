@@ -2,6 +2,7 @@ using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
+using Recall.Core.Journal;
 using Recall.Core.Ipc;
 using Recall.Core.Ocr;
 using Recall.Core.Scan;
@@ -13,7 +14,8 @@ namespace Recall.Agent;
 /// <param name="Debounce">Quiet time before watcher events are indexed. Null selects 2 seconds.</param>
 /// <param name="IsSystemPath">Overrides the built-in system path rule (tests run inside %TEMP%).</param>
 public sealed record AgentOptions(
-    string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null);
+    string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null,
+    IChangeJournal? Journal = null);
 
 /// <summary>Indexes the configured roots, keeps watched roots current, and answers searches on the per-user pipe.</summary>
 public sealed class AgentHost(RecallConfig config, AgentOptions options)
@@ -49,8 +51,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         StartWatchers();
         _watching.TrySetResult();
 
-        // Startup only has to find what changed while the agent was off; the runner falls back to a full walk when due.
-        await IndexAsync(config.Roots, ScanMode.Auto, ct);
+        await StartupPassAsync(store, ct);
         await pipe;
         foreach (var w in _watchers.Values) w.Dispose();
     }
@@ -82,13 +83,27 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         });
     }
 
-    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct)
+    /// <summary>
+    /// Startup only has to find what changed while the agent was off. The change journal (when its service runs) names files
+    /// overwritten in place; the directory pass finds the rest; the runner falls back to a full walk when due.
+    /// </summary>
+    private async Task StartupPassAsync(IndexStore store, CancellationToken ct)
+    {
+        var catchUp = new JournalCatchUp(store, options.Journal ?? new JournalClient());
+        var plan = await catchUp.PrepareAsync(config.Roots, ct);
+        _log.Info($"change journal: {plan.Covered.Count} root(s) covered, {plan.NeedsFull.Count} need a full walk");
+        await catchUp.ApplyAsync(plan, FlushAsync);
+        await IndexAsync(config.Roots, ScanMode.Auto, ct, plan.Hints);
+        catchUp.Commit(plan);
+    }
+
+    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct, RootHints? hints = null)
     {
         await _indexGate.WaitAsync(ct);
         try
         {
             _log.Info($"indexing {roots.Count} root(s)");
-            LastReport = await _runner!.RunAsync(roots, null, ct, mode);
+            LastReport = await _runner!.RunAsync(roots, null, ct, mode, hints);
             _lastRunUtc = DateTime.UtcNow;
             _log.Info($"pass done: {LastReport}");
         }

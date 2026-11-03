@@ -7,13 +7,13 @@ namespace Recall.Agent;
 /// <c>--workers N</c> sets how many files are processed at once (1 gives single-thread figures).
 /// <c>--db PATH</c> uses another index file and skips the single-instance check, which is how benchmarks avoid the live index.
 /// </summary>
-public sealed record CliOptions(bool Once, IReadOnlyList<string> Roots, string? DbPath, int? Workers = null, bool Fast = false, int ScanThreads = 1)
+public sealed record CliOptions(bool Once, IReadOnlyList<string> Roots, string? DbPath, int? Workers = null, bool Fast = false, int? ScanThreads = null)
 {
     public static CliOptions Parse(string[] args)
     {
         var once = false;
         var fast = false;
-        var scanThreads = 1;
+        int? scanThreads = null;
         string? db = null;
         int? workers = null;
         var roots = new List<string>();
