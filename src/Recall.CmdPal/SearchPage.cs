@@ -23,6 +23,13 @@ internal sealed partial class SearchPage : DynamicListPage
 
     public override void UpdateSearchText(string oldSearch, string newSearch) => Start(newSearch);
 
+    /// <summary>Opens the page with a query already running (used by the fallback item on the home page).</summary>
+    public void Seed(string query)
+    {
+        SearchText = query;
+        Start(query);
+    }
+
     private void Start(string query)
     {
         _current?.Cancel();

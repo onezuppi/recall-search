@@ -6,8 +6,10 @@ namespace Recall.CmdPal;
 public sealed partial class RecallCommandsProvider : CommandProvider
 {
     public const string SearchId = "RecallSearch.Search";
+    public const string FallbackId = "RecallSearch.Search.Fallback";
 
     private readonly ICommandItem[] _commands;
+    private readonly IFallbackCommandItem[] _fallbacks;
 
     public RecallCommandsProvider()
     {
@@ -19,11 +21,13 @@ public sealed partial class RecallCommandsProvider : CommandProvider
             new CommandItem(new SearchPage(new SearchSession()) { Id = SearchId })
             {
                 Title = "Recall Search",
-                Icon = Icons.Logo,
                 Subtitle = "Find text in documents and images",
             },
         ];
+        _fallbacks = [new SearchFallbackItem(FallbackId)];
     }
 
     public override ICommandItem[] TopLevelCommands() => _commands;
+
+    public override IFallbackCommandItem[]? FallbackCommands() => _fallbacks;
 }
