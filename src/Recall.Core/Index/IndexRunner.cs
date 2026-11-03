@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Hashing;
 using System.Threading.Channels;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
@@ -22,10 +23,11 @@ public sealed record RunReport(
     long DirsListed = 0, long DirsReused = 0);
 
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
+/// <param name="pause">While paused no new root, file or embedded image is started; work in flight finishes.</param>
 /// <param name="fullScanInterval">Longest time a root may go without a full walk in <see cref="ScanMode.Auto"/>; null selects 7 days.</param>
 /// <param name="scanThreads">Directories listed at the same time during a scan; null selects <see cref="DefaultScanThreads"/>.</param>
 public sealed class IndexRunner(
-    IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null,
+    IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null,
     TimeSpan? fullScanInterval = null, int? scanThreads = null)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
@@ -56,7 +58,7 @@ public sealed class IndexRunner(
         var c = new Counters();
         foreach (var root in roots.OrderByDescending(r => r.Watched))
         {
-            ct.ThrowIfCancellationRequested();
+            await WaitIfPausedAsync(ct);
             var sw = Stopwatch.StartNew();
             var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
             // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
@@ -93,7 +95,7 @@ public sealed class IndexRunner(
         {
             var fi = new FileInfo(p);
             if (!fi.Exists) { gone.Add(p); continue; }
-            var group = BuiltInRules.GroupOf(fi.Extension);
+            var group = policy.GroupOf(fi.Extension);
             if (group == null) continue;
             var rec = new FileRecord(fi.FullName, fi.Length, fi.LastWriteTimeUtc, group);
             var state = store.FileState(fi.FullName);
@@ -104,6 +106,12 @@ public sealed class IndexRunner(
         c.Added += work.Count;
         await ProcessAsync(work, rootPath, c, null, ct);
         return Report(c, total.Elapsed);
+    }
+
+    private Task WaitIfPausedAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return pause?.WaitWhilePausedAsync(ct) ?? Task.CompletedTask;
     }
 
     private static RunReport Report(Counters c, TimeSpan elapsed) => new(
@@ -120,6 +128,7 @@ public sealed class IndexRunner(
         {
             await foreach (var f in channel.Reader.ReadAllAsync(ct))
             {
+                await WaitIfPausedAsync(ct);
                 await ProcessFileAsync(f, root, c, ct);
                 progress?.Report(new RunProgress(root, Interlocked.Increment(ref done), work.Count));
             }
@@ -164,19 +173,19 @@ public sealed class IndexRunner(
                 contentId = await c.Inflight[hash].Task.WaitAsync(ct);
                 Interlocked.Increment(ref c.Deduped);
             }
-            store.UpsertFile(f, root, contentId, "ok", null);
+            store.UpsertFile(f, root, contentId, FileStatus.Ok, null);
         }
         catch (OperationCanceledException) { throw; }
         catch (ExtractException e) when (e.Transient) { Retry(f, c); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Retry(f, c); }
         catch (ExtractException e)
         {
-            store.UpsertFile(f, root, null, "failed", e.Message);
+            store.UpsertFile(f, root, null, FileStatus.Failed, e.Message);
             Interlocked.Increment(ref c.Failed);
         }
         catch (Exception e)
         {
-            store.UpsertFile(f, root, null, "failed", $"{e.GetType().Name}: {e.Message}");
+            store.UpsertFile(f, root, null, FileStatus.Failed, $"{e.GetType().Name}: {e.Message}");
             Interlocked.Increment(ref c.Failed);
         }
     }
@@ -199,6 +208,7 @@ public sealed class IndexRunner(
         var segments = result.Segments.ToList();
         foreach (var img in result.Images)
         {
+            await WaitIfPausedAsync(ct);
             var o = Stopwatch.StartNew();
             try
             {

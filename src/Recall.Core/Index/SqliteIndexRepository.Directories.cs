@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace Recall.Core.Index;
 
 /// <summary>Remembered directory times and small key-value state that let a later pass skip unchanged directories.</summary>
-public sealed partial class IndexStore
+public sealed partial class SqliteIndexRepository
 {
     public IReadOnlyDictionary<string, long> DirectoryTimes(string root)
     {

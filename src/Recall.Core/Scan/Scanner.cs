@@ -158,7 +158,7 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
             try { size = ((FileInfo)e).Length; } catch (IOException) { continue; }
             var fileDecision = policy.IndexFile(e.FullName, size, e.Attributes, scope);
             if (fileDecision != FileDecision.Index) { skippedFiles.Add(fileDecision); continue; }
-            found.Add(new FileRecord(e.FullName, size, e.LastWriteTimeUtc, BuiltInRules.GroupOf(Path.GetExtension(e.Name))!));
+            found.Add(new FileRecord(e.FullName, size, e.LastWriteTimeUtc, policy.GroupOf(Path.GetExtension(e.Name))!));
         }
 
         lock (_sync)

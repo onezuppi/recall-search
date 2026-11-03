@@ -4,12 +4,12 @@ using Recall.Core.Scan;
 
 namespace Recall.Core.Tests;
 
-public class IndexStoreTests : IDisposable
+public class SqliteIndexRepositoryTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "rs-idx-" + Guid.NewGuid().ToString("N"));
     private string Db => Path.Combine(_dir, "index.db");
 
-    public IndexStoreTests() => Directory.CreateDirectory(_dir);
+    public SqliteIndexRepositoryTests() => Directory.CreateDirectory(_dir);
 
     public void Dispose()
     {
@@ -30,9 +30,21 @@ public class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Content_added_but_not_yet_linked_survives_another_files_upsert()
+    {
+        using var s = SqliteIndexRepository.Open(Db);
+        var pending = s.AddContent(1, "text", [new Segment("", "waiting for its file")]);
+        var other = s.AddContent(2, "text", [new Segment("", "other")]);
+        s.UpsertFile(Rec(@"C:\other.txt"), @"C:", other, "ok", null);
+        Assert.Equal(1, Scalar($"SELECT COUNT(*) FROM segments WHERE content_id = {pending}"));
+        s.UpsertFile(Rec(@"C:\pending.txt"), @"C:", pending, "ok", null);
+        Assert.Equal(2, Scalar("SELECT COUNT(*) FROM segments"));
+    }
+
+    [Fact]
     public void Same_content_two_paths_stored_once()
     {
-        using var s = IndexStore.Open(Db);
+        using var s = SqliteIndexRepository.Open(Db);
         var id = s.AddContent(1, "text", [new Segment("", "hello")]);
         s.UpsertFile(Rec(@"C:\a\one.txt"), @"C:\a", id, "ok", null);
         s.UpsertFile(Rec(@"C:\a\two.txt"), @"C:\a", id, "ok", null);
@@ -45,7 +57,7 @@ public class IndexStoreTests : IDisposable
     [Fact]
     public void Trigram_finds_fragment_inside_word()
     {
-        using var s = IndexStore.Open(Db);
+        using var s = SqliteIndexRepository.Open(Db);
         s.AddContent(7, "text", [new Segment("", "Пароль от wifi: молоко123")]);
         Assert.Equal(1, Scalar("SELECT COUNT(*) FROM segments_fts WHERE segments_fts MATCH '\"оло\"'"));
         Assert.Equal(1, Scalar("SELECT COUNT(*) FROM segments_fts WHERE segments_fts MATCH '\"WIFI\"'"));
@@ -55,7 +67,7 @@ public class IndexStoreTests : IDisposable
     [Fact]
     public void Removing_last_path_deletes_orphan_content()
     {
-        using var s = IndexStore.Open(Db);
+        using var s = SqliteIndexRepository.Open(Db);
         var id = s.AddContent(1, "text", [new Segment("", "some text here")]);
         s.UpsertFile(Rec(@"C:\a\one.txt"), @"C:\a", id, "ok", null);
         s.UpsertFile(Rec(@"C:\a\two.txt"), @"C:\a", id, "ok", null);
@@ -70,7 +82,7 @@ public class IndexStoreTests : IDisposable
     [Fact]
     public void Replacing_content_of_a_path_drops_the_old_orphan()
     {
-        using var s = IndexStore.Open(Db);
+        using var s = SqliteIndexRepository.Open(Db);
         var a = s.AddContent(1, "text", [new Segment("", "old words")]);
         s.UpsertFile(Rec(@"C:\a\one.txt"), @"C:\a", a, "ok", null);
         var b = s.AddContent(2, "text", [new Segment("", "new words")]);
@@ -82,7 +94,7 @@ public class IndexStoreTests : IDisposable
     [Fact]
     public void Snapshot_returns_size_and_mtime_per_path_for_root()
     {
-        using var s = IndexStore.Open(Db);
+        using var s = SqliteIndexRepository.Open(Db);
         s.UpsertFile(Rec(@"C:\a\one.txt", 5, 111), @"C:\a", null, "failed", "boom");
         s.UpsertFile(Rec(@"C:\b\two.txt", 6, 222), @"C:\b", null, "ok", null);
         var snap = s.Snapshot(@"C:\a");

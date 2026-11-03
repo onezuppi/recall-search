@@ -15,7 +15,7 @@ public enum ScanMode { Full, Auto }
 /// when the root was never fully walked, when the ignore configuration changed, or when the last full walk is older than
 /// the interval. A fast walk cannot see a file overwritten in place, which is what the interval bounds.
 /// </summary>
-public sealed class RootScanPlanner(IndexStore store, IgnorePolicy policy, TimeSpan? fullScanInterval = null, int scanThreads = 1)
+public sealed class RootScanPlanner(IDirectoryRepository store, IgnorePolicy policy, TimeSpan? fullScanInterval = null, int scanThreads = 1)
 {
     public static readonly TimeSpan DefaultFullScanInterval = TimeSpan.FromDays(7);
 
@@ -45,13 +45,13 @@ public sealed class RootScan
 {
     private const long NeverMatches = -1;
 
-    private readonly IndexStore _store;
+    private readonly IDirectoryRepository _store;
     private readonly IgnorePolicy _policy;
     private readonly string _root;
     private readonly IReadOnlyDictionary<string, long> _stored;
     private readonly Scanner _scanner;
 
-    internal RootScan(IndexStore store, IgnorePolicy policy, string root, IReadOnlyDictionary<string, long> stored, bool fast, int threads)
+    internal RootScan(IDirectoryRepository store, IgnorePolicy policy, string root, IReadOnlyDictionary<string, long> stored, bool fast, int threads)
     {
         (_store, _policy, _root, _stored, IsFast) = (store, policy, root, stored, fast);
         _scanner = new Scanner(policy, threads);

@@ -25,20 +25,20 @@ public sealed class JournalPlan
 /// Startup sync with the NTFS change journal. Per root it stores a cursor (journal id and next USN) in the index.
 /// Roots without a valid cursor are scanned fully once; roots with one need only the listed files plus a directory pass.
 /// </summary>
-public sealed class JournalCatchUp(IndexStore store, IChangeJournal journal)
+public sealed class JournalCatchUp(IDirectoryRepository store, IChangeJournal journal, Func<IReadOnlyCollection<string>>? extensions = null)
 {
     private static string Key(string root) => "usn:" + root.ToLowerInvariant();
 
     public async Task<JournalPlan> PrepareAsync(IReadOnlyList<RootFolder> roots, CancellationToken ct)
     {
         var plan = new JournalPlan();
-        var extensions = BuiltInRules.KnownExtensions.ToList();
+        var known = (extensions?.Invoke() ?? BuiltInRules.KnownExtensions).ToList();
         foreach (var root in roots)
         {
             var path = Path.GetFullPath(root.Path).TrimEnd('\\');
             if (path.Length < 2 || path[1] != ':' || !Directory.Exists(path)) continue;
             var (id, usn) = ReadCursor(path);
-            var response = await journal.QueryAsync(new JournalRequest(path[..2].ToUpperInvariant(), id, usn, [path], extensions), ct);
+            var response = await journal.QueryAsync(new JournalRequest(path[..2].ToUpperInvariant(), id, usn, [path], known), ct);
             if (response == null) continue;
 
             switch (response.Status)

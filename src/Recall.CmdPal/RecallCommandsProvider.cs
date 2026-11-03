@@ -10,6 +10,7 @@ public sealed partial class RecallCommandsProvider : CommandProvider
 
     private readonly ICommandItem[] _commands;
     private readonly IFallbackCommandItem[] _fallbacks;
+    private readonly ExtensionSettings _settings = new();
 
     public RecallCommandsProvider()
     {
@@ -26,6 +27,8 @@ public sealed partial class RecallCommandsProvider : CommandProvider
         ];
         _fallbacks = [new SearchFallbackItem(FallbackId)];
     }
+
+    public override ICommandSettings? Settings => _settings;
 
     public override ICommandItem[] TopLevelCommands() => _commands;
 

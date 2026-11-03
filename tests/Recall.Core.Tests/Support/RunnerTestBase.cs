@@ -22,7 +22,7 @@ public abstract class RunnerTestBase : IDisposable
         try { Directory.Delete(_dir, true); } catch { }
     }
 
-    protected sealed record Setup(IndexStore Store, IndexRunner Runner, CountingExtractor Text, CountingExtractor Office, RecallConfig Config) : IDisposable
+    protected sealed record Setup(IIndexRepository Store, IndexRunner Runner, CountingExtractor Text, CountingExtractor Office, RecallConfig Config) : IDisposable
     {
         public void Dispose() => Store.Dispose();
     }
@@ -30,7 +30,7 @@ public abstract class RunnerTestBase : IDisposable
     protected Setup Make(string ocrText = "ocr text")
     {
         var cfg = new RecallConfig([], new HashSet<string>(["images", "pdf", "office", "text"], StringComparer.OrdinalIgnoreCase), []);
-        var store = IndexStore.Open(Db);
+        var store = SqliteIndexRepository.Open(Db);
         var text = new CountingExtractor(new TextExtractor());
         var office = new CountingExtractor(new OpenXmlExtractor());
         var runner = new IndexRunner(store, new IgnorePolicy(cfg, _ => false), [text, office], new FakeOcr(ocrText));

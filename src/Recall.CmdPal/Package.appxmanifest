@@ -30,6 +30,7 @@
         DisplayName="Recall Search"
         Description="Find text you saw in a document or on an image"
         BackgroundColor="transparent"
+        AppListEntry="none"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />

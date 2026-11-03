@@ -70,7 +70,7 @@ public class IncrementalRunnerTests : RunnerTestBase
     {
         using (var s = Make()) { Write(@"a\1.txt", "alpha"); await Auto(s, R()); }
         var cfg = new RecallConfig([], new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase), []);
-        using var store = IndexStore.Open(Db);
+        using var store = SqliteIndexRepository.Open(Db);
         var runner = new IndexRunner(store, new IgnorePolicy(cfg, _ => false), [], new FakeOcr(""));
         var r = await runner.RunAsync([R()], null, default, ScanMode.Auto);
         Assert.Equal(0, r.DirsReused);
@@ -80,7 +80,7 @@ public class IncrementalRunnerTests : RunnerTestBase
     [Fact]
     public async Task Expired_full_scan_interval_forces_a_full_scan()
     {
-        using var store = IndexStore.Open(Db);
+        using var store = SqliteIndexRepository.Open(Db);
         var cfg = new RecallConfig([], new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase), []);
         var runner = new IndexRunner(store, new IgnorePolicy(cfg, _ => false), [], new FakeOcr(""), fullScanInterval: TimeSpan.Zero);
         Write(@"a\1.bin", "x");

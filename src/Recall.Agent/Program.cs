@@ -1,4 +1,5 @@
 using Recall.Agent;
+using Recall.Core.Activity;
 using Recall.Core.Config;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
@@ -40,21 +41,21 @@ if (cli.Roots.Count > 0)
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 
+PauseOptions? pause = config.PauseWhenBusy ? new PauseOptions(new WindowsActivityMonitor(config.PauseProcesses)) : null;
+
 try
 {
     if (cli.Once)
     {
-        using var store = IndexStore.Open(dbPath);
-        var ocr = new WindowsOcr(config.OcrLanguages, cli.Workers ?? IndexRunner.DefaultWorkers);
-        IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        var policy = new IgnorePolicy(config);
-        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers, scanThreads: cli.ScanThreads);
+        using var store = SqliteIndexRepository.Open(dbPath);
+        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, scanThreads: cli.ScanThreads);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
         log.Info($"one-shot pass done: {report}");
         return 0;
     }
 
-    await new AgentHost(config, new AgentOptions(dbPath, Log: log)).RunAsync(shutdown.Token);
+    var configForSave = cli.DbPath == null && cli.Roots.Count == 0 ? configPath : null;
+    await new AgentHost(config, new AgentOptions(dbPath, Log: log, Activity: pause, ConfigPath: configForSave)).RunAsync(shutdown.Token);
     return 0;
 }
 catch (OperationCanceledException) { return 0; }
