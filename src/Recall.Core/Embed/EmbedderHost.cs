@@ -37,7 +37,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
     }
 
     /// <summary>The configured host, or null when embeddings are off. A device other than CPU fails when the model is first needed.</summary>
-    public static EmbedderHost? Create(RecallConfig config, string modelsRoot)
+    public static EmbedderHost? Create(RecallConfig config, string modelsRoot, TimeSpan? unloadDelay = null)
     {
         if (config.EmbeddingModel == null) return null;
         var spec = ModelCatalog.Find(config.EmbeddingModel);
@@ -48,7 +48,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
             if (config.EmbeddingDevice != EmbeddingDevice.Cpu)
                 throw new NotSupportedException($"embedding device {config.EmbeddingDevice} is not supported yet");
             return new OnnxEmbedder(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), Math.Max(1, Environment.ProcessorCount / 2));
-        }, TimeSpan.FromSeconds(60));
+        }, unloadDelay ?? TimeSpan.FromSeconds(60));
     }
 
     public Lease Acquire()

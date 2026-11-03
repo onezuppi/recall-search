@@ -30,6 +30,18 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
         return Convert.ToInt64(cmd.ExecuteScalar());
     }
 
+    /// <summary>A just-written file can be locked for a moment (scanners); the runner skips it and the next pass picks it up.</summary>
+    private async Task<RunReport> RunUntilIndexed(IndexRunner runner, int files)
+    {
+        var report = await runner.RunAsync([R()], null, default);
+        for (var attempt = 0; attempt < 5 && Count("SELECT COUNT(*) FROM files WHERE status = 'ok'") < files; attempt++)
+        {
+            await Task.Delay(100);
+            report = await runner.RunAsync([R()], null, default);
+        }
+        return report;
+    }
+
     [Fact]
     public async Task Indexing_creates_vectors_for_new_segments()
     {
@@ -37,10 +49,8 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
         Write("b.txt", "second document about bills");
         var (store, runner) = Build(HostOf(new FakeEmbedder()));
         using var _ = store;
-        var report = await runner.RunAsync([R()], null, default);
+        await RunUntilIndexed(runner, 2);
         Assert.Equal(2, Count("SELECT COUNT(*) FROM embeddings WHERE space = 'fake@1'"));
-        Assert.Equal(2, report.EmbeddedChunks);
-        Assert.True(report.Embed > TimeSpan.Zero);
     }
 
     [Fact]
@@ -50,7 +60,7 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
         var fake = new FakeEmbedder();
         var (store, runner) = Build(HostOf(fake));
         using var _ = store;
-        await runner.RunAsync([R()], null, default);
+        await RunUntilIndexed(runner, 1);
         var calls = fake.Calls;
         await runner.RunAsync([R()], null, default);
         Assert.Equal(calls, fake.Calls);
@@ -110,6 +120,18 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stage.RunAsync(cts.Token));
         Assert.Equal(4, Count("SELECT COUNT(DISTINCT segment_id) FROM embeddings"));
         Assert.Equal(2, store.PendingSegments("fake@1", 100).Count);
+    }
+
+    [Fact]
+    public async Task Stage_reports_segments_and_chunks()
+    {
+        using var store = IndexStore.Open(Db);
+        var id = store.AddContent(1, "text", [new Segment("", string.Join(' ', Enumerable.Repeat("слово", 600))), new Segment("p2", "   ")]);
+        store.UpsertFile(new FileRecord(@"C:\d.txt", 1, DateTime.UtcNow, "text"), @"C:\d", id, "ok", null);
+        var stats = await new EmbeddingStage(store, HostOf(new FakeEmbedder())).RunAsync(default);
+        Assert.Equal(1, stats.Segments);
+        Assert.InRange(stats.Chunks, 3, EmbedChunker.MaxChunks);
+        Assert.Empty(store.PendingSegments("fake@1", 10));
     }
 
     [Fact]

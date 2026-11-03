@@ -33,11 +33,11 @@ public class AgentHostTests : IDisposable
         try { Directory.Delete(_dir, true); } catch { }
     }
 
-    private AgentHost Start(TimeSpan debounce)
+    private AgentHost Start(TimeSpan debounce, string? embeddingModel = null, HttpClient? http = null)
     {
         var groups = new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase);
-        var config = new RecallConfig([new RootFolder(Root, true)], groups, []);
-        var host = new AgentHost(config, new AgentOptions(Db, _pipe, debounce, _ => false));
+        var config = new RecallConfig([new RootFolder(Root, true)], groups, []) { EmbeddingModel = embeddingModel };
+        var host = new AgentHost(config, new AgentOptions(Db, _pipe, debounce, _ => false, Http: http, ModelsRoot: Path.Combine(_dir, "models")));
         _run = Task.Run(() => host.RunAsync(_cts.Token));
         Assert.True(host.Watching.Wait(TimeSpan.FromSeconds(10)), "watchers did not start");
         return host;
@@ -62,6 +62,20 @@ public class AgentHostTests : IDisposable
         Start(TimeSpan.FromMilliseconds(200));
         File.WriteAllText(Path.Combine(Root, "note.txt"), "zebra crossing schedule");
         Assert.True(await WaitFor(() => Found("zebra"), TimeSpan.FromSeconds(5)));
+    }
+
+    private sealed class FailingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new HttpRequestException("offline");
+    }
+
+    [Fact]
+    public async Task Agent_survives_embedding_model_that_cannot_be_downloaded()
+    {
+        Start(TimeSpan.FromMilliseconds(200), "multilingual-e5-small", new HttpClient(new FailingHandler()));
+        File.WriteAllText(Path.Combine(Root, "note.txt"), "pelican migration notes");
+        Assert.True(await WaitFor(() => Found("pelican"), TimeSpan.FromSeconds(5)));
     }
 
     [Fact]

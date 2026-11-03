@@ -1,5 +1,6 @@
 using Recall.Agent;
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
@@ -47,7 +48,8 @@ try
         var ocr = new WindowsOcr(config.OcrLanguages, cli.Workers ?? IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         var policy = new IgnorePolicy(config);
-        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers);
+        var embedder = await EmbeddingSetup.PrepareAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), TimeSpan.Zero, log.Info, shutdown.Token);
+        var runner = new IndexRunner(store, policy, extractors, ocr, cli.Workers, embedder);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token);
         log.Info($"one-shot pass done: {report}");
         return 0;

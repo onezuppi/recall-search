@@ -1,4 +1,5 @@
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
@@ -10,9 +11,12 @@ namespace Recall.Agent;
 /// <param name="DbPath">Index database file.</param>
 /// <param name="PipeName">Null selects the per-user pipe name.</param>
 /// <param name="Debounce">Quiet time before watcher events are indexed. Null selects 2 seconds.</param>
+/// <param name="Http">Used to download the embedding model; null selects a shared client.</param>
+/// <param name="ModelsRoot">Null selects the models folder of the data directory.</param>
 /// <param name="IsSystemPath">Overrides the built-in system path rule (tests run inside %TEMP%).</param>
 public sealed record AgentOptions(
-    string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null);
+    string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null,
+    HttpClient? Http = null, string? ModelsRoot = null);
 
 /// <summary>Indexes the configured roots, keeps watched roots current, and answers searches on the per-user pipe.</summary>
 public sealed class AgentHost(RecallConfig config, AgentOptions options)
@@ -37,10 +41,12 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
         _policy = new IgnorePolicy(config, options.IsSystemPath);
         var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
-        _runner = new IndexRunner(store, _policy, extractors, ocr);
+        var embedder = await EmbeddingSetup.PrepareAsync(config, options.ModelsRoot ?? EmbeddingSetup.ModelsRoot,
+            options.Http ?? new HttpClient(), TimeSpan.FromSeconds(60), _log.Info, ct);
+        _runner = new IndexRunner(store, _policy, extractors, ocr, embedder: embedder);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log);
 
-        var handler = new AgentRequestHandler(options.DbPath, store, queue, () => _lastRunUtc);
+        var handler = new AgentRequestHandler(options.DbPath, store, queue, () => _lastRunUtc, embedder);
         var pipe = new PipeServer(handler.HandleAsync, options.PipeName).RunAsync(ct);
         if (pipe.IsFaulted) await pipe; // the pipe name is already owned by another process
 

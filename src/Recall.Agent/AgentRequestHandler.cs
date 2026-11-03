@@ -1,3 +1,4 @@
+using Recall.Core.Embed;
 using Recall.Core.Index;
 using Recall.Core.Ipc;
 using Recall.Core.Search;
@@ -5,10 +6,10 @@ using Recall.Core.Search;
 namespace Recall.Agent;
 
 /// <summary>Maps pipe requests to the search engine and index counters.</summary>
-public sealed class AgentRequestHandler(string dbPath, IndexStore store, ChangeQueue queue, Func<DateTime?> lastRunUtc)
+public sealed class AgentRequestHandler(string dbPath, IndexStore store, ChangeQueue queue, Func<DateTime?> lastRunUtc, EmbedderHost? embedder = null)
 {
     private const int MaxLimit = 200;
-    private readonly SearchEngine _search = new(dbPath);
+    private readonly SearchEngine _search = new(dbPath, embedder);
 
     public Task<IpcResponse> HandleAsync(IpcRequest request, CancellationToken ct) => Task.FromResult(request.Op switch
     {
