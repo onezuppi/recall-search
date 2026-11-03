@@ -27,6 +27,7 @@ internal static class HitItem
                     Meta("Size", FormatSize(hit.Size)),
                     Meta("Modified", modified),
                     Meta("Where", hit.Locator.Length > 0 ? hit.Locator : "whole file"),
+                    Buttons(hit),
                 ],
             },
             MoreCommands =
@@ -47,11 +48,26 @@ internal static class HitItem
         var source = hit.Context.Length > 0 ? hit.Context : hit.Snippet;
         var parts = new List<string>();
         if (thumbnail is not null) parts.Add($"![]({new Uri(thumbnail).AbsoluteUri})");
-        var headline = MarkdownHighlight.Headline(source, terms);
+        var headline = MarkdownHighlight.Headline(source, terms, out var complete);
         if (headline.Length > 0) parts.Add(headline);
-        parts.Add(MarkdownHighlight.Apply(source, terms));
+        if (!complete) parts.Add(MarkdownHighlight.Apply(source, terms));
         return string.Join("\n\n", parts);
     }
+
+    /// <summary>Clickable buttons at the end of the details pane. A list row cannot hold buttons in this SDK.</summary>
+    private static DetailsElement Buttons(IpcHit hit) => new()
+    {
+        Key = "Actions",
+        Data = new DetailsCommands
+        {
+            Commands =
+            [
+                new ShowInFolderCommand(hit.Path),
+                new CopyFileCommand(hit.Path),
+                new CopyTextCommand(hit.Path) { Name = "Copy path" },
+            ],
+        },
+    };
 
     private static DetailsElement Meta(string key, string value) =>
         new() { Key = key, Data = new DetailsLink { Text = value } };
