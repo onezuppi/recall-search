@@ -82,6 +82,31 @@ public sealed class SqliteSearchRepository(string dbPath) : ISearchRepository
             return rows;
         }
 
+        public void ScanVectors(ParsedQuery filter, string space, int dimensions, VectorVisitor visit)
+        {
+            var (where, args) = Filters(filter);
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = $"""
+                SELECT f.path, c.grp, s.locator, f.mtime, f.size, s.id, e.vec
+                FROM embeddings e
+                JOIN segments s ON s.id = e.segment_id
+                JOIN contents c ON c.id = s.content_id
+                JOIN files f ON f.content_id = c.id
+                WHERE e.space = $space AND e.chunk >= 0 AND {where}
+                """;
+            cmd.Parameters.AddWithValue("$space", space);
+            foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v);
+            var buffer = new byte[dimensions * sizeof(float)];
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (r.GetBytes(6, 0, null, 0, 0) != buffer.Length) continue;
+                r.GetBytes(6, 0, buffer, 0, buffer.Length);
+                var row = new VectorRow(r.GetString(0), r.GetString(1), r.GetString(2), new DateTime(r.GetInt64(3), DateTimeKind.Utc), r.GetInt64(4), r.GetInt64(5));
+                visit(row, System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer));
+            }
+        }
+
         public string? SegmentText(long segmentId)
         {
             using var cmd = _db.CreateCommand();

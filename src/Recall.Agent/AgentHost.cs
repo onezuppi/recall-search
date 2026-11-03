@@ -1,5 +1,6 @@
 using Recall.Core.Activity;
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
@@ -17,9 +18,11 @@ namespace Recall.Agent;
 /// <param name="IsSystemPath">Overrides the built-in system path rule (tests run inside %TEMP%).</param>
 /// <param name="Activity">Pauses indexing while its monitor reports busy. Null never pauses.</param>
 /// <param name="ConfigPath">Where settings changes are saved. Null keeps them in memory only.</param>
+/// <param name="Http">Downloads the embedding model. Null selects a new client.</param>
+/// <param name="ModelsRoot">Null selects the models folder of the data directory.</param>
 public sealed record AgentOptions(
     string DbPath, string? PipeName = null, TimeSpan? Debounce = null, Func<string, bool>? IsSystemPath = null, IAgentLog? Log = null,
-    PauseOptions? Activity = null, string? ConfigPath = null, IChangeJournal? Journal = null);
+    PauseOptions? Activity = null, string? ConfigPath = null, IChangeJournal? Journal = null, HttpClient? Http = null, string? ModelsRoot = null);
 
 /// <param name="Poll">How often the monitor is asked. Null selects 3 seconds.</param>
 /// <param name="ResumeDelay">Continuous idle time before work resumes. Null selects 30 seconds.</param>
@@ -35,6 +38,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     private SettingsController? _settings;
     private IIndexRepository? _store;
     private IndexRunner? _runner;
+    private EmbedderHost? _embedder;
     private ChangeQueue? _queue;
     private IgnorePolicy? _policy;
     private DateTime? _lastRunUtc;
@@ -50,12 +54,14 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         _settings = new SettingsController(config, options.ConfigPath, options.IsSystemPath, this);
         _policy = new IgnorePolicy(config, options.IsSystemPath);
         var ocr = new ReleasableOcr(() => IndexRunnerFactory.CreateOcr(config));
+        var modelsRoot = options.ModelsRoot ?? EmbeddingSetup.ModelsRoot;
+        var embedder = _embedder = EmbedderHost.Create(config, modelsRoot);
         using var gate = StartPauseGate(ocr);
-        _runner = IndexRunnerFactory.Create(config, store, _policy, ocr: ocr, pause: gate);
+        _runner = IndexRunnerFactory.Create(config, store, _policy, ocr: ocr, pause: gate, embedder: embedder);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log, () => gate?.IsPaused ?? false);
         if (gate != null) gate.Changed += (paused, _) => { if (!paused) queue.Resume(); };
 
-        var handler = new AgentRequestHandler(SearchEngine.ForDatabase(options.DbPath), store, queue, _settings, () => _lastRunUtc);
+        var handler = new AgentRequestHandler(SearchEngine.ForDatabase(options.DbPath, embedder), store, queue, _settings, () => _lastRunUtc);
         var pipe = new PipeServer(handler.HandleAsync, options.PipeName).RunAsync(ct);
         if (pipe.IsFaulted) await pipe; // the pipe name is already owned by another process
 
@@ -63,6 +69,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         StartWatchers();
         _watching.TrySetResult();
 
+        await EmbeddingSetup.EnsureModelAsync(config, modelsRoot, options.Http ?? new HttpClient(), _log.Info, ct);
         await StartupPassAsync(store, ct);
         await pipe;
         lock (_watchers) foreach (var w in _watchers.Values) w.Dispose();
@@ -77,7 +84,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         if (gate.IsPaused) _log.Info("indexing paused at start");
         gate.Changed += (paused, reason) =>
         {
-            if (paused) ocr.Release();
+            if (paused) { ocr.Release(); _embedder?.Release(); }
             _log.Info(paused ? $"indexing paused: {reason}" : "indexing resumed");
         };
         return gate;
@@ -175,6 +182,11 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         lock (_watchers) { _watchers.Remove(root.Path, out w); }
         w?.Dispose();
         Background($"removal of {root.Path}", () => RemoveRootFilesAsync(root));
+    }
+
+    void ISettingsEffects.SimilarityChanged(float minSimilarity)
+    {
+        if (_embedder != null) _embedder.MinSimilarity = minSimilarity;
     }
 
     void ISettingsEffects.RootWatchChanged(RootFolder root)

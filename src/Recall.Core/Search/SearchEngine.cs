@@ -1,3 +1,4 @@
+using Recall.Core.Embed;
 using Recall.Core.Ignore;
 
 namespace Recall.Core.Search;
@@ -13,14 +14,17 @@ public sealed record SearchHit(string Path, string Group, string Locator, string
 /// <summary>
 /// Fragment search over the trigram index. Ranking: phrase hits, then all-fragments hits by bm25, then file-name hits.
 /// Fragments under 3 characters cannot use the trigram index and fall back to a scan with a case-insensitive contains.
+/// With an <paramref name="embedder"/> the content hits are merged with vector-similarity hits (<see cref="RankFusion"/>).
+/// Any failure of the semantic step leaves the text hits unchanged.
 /// </summary>
-public sealed class SearchEngine(ISearchRepository repository)
+public sealed class SearchEngine(ISearchRepository repository, EmbedderHost? embedder = null)
 {
+    private const int HybridPoolFactor = 3;
     private const int MinTrigram = 3;
     private const int TierPhrase = 2, TierAllTerms = 1;
     private const double TierWeight = 1000, ScanScore = 1000;
 
-    public static SearchEngine ForDatabase(string dbPath) => new(new SqliteSearchRepository(dbPath));
+    public static SearchEngine ForDatabase(string dbPath, EmbedderHost? embedder = null) => new(new SqliteSearchRepository(dbPath), embedder);
 
     public IReadOnlyList<SearchHit> Search(string text, int limit)
     {
@@ -36,10 +40,12 @@ public sealed class SearchEngine(ISearchRepository repository)
         var hits = new List<SearchHit>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        var cap = embedder == null ? limit : limit * HybridPoolFactor;
+
         void Add(IEnumerable<SearchHit> found)
         {
             foreach (var h in found)
-                if (hits.Count < limit && seen.Add(h.Path)) hits.Add(h);
+                if (hits.Count < cap && seen.Add(h.Path)) hits.Add(h);
         }
 
         if (longTerms.Count > 0)
@@ -59,8 +65,27 @@ public sealed class SearchEngine(ISearchRepository repository)
             Add(session.ScanSegments(q, shortTerms, perQuery).Select(r => Hit(r, SnippetText.Around(r.Text, shortTerms[0]), ScanScore)));
         }
 
+        var vectorHits = VectorHits(session, q, terms, cap);
+        if (vectorHits.Count > 0) hits = RankFusion.Merge(hits, vectorHits);
+        hits = hits.Take(limit).ToList();
+        seen.Clear();
+        foreach (var h in hits) seen.Add(h.Path);
+        cap = limit;
         Add(session.MatchFileNames(q, terms, perQuery).Select(NameHit));
         return hits.Select(h => WithContext(session, h, terms)).ToList();
+    }
+
+    private List<SearchHit> VectorHits(ISearchSession session, ParsedQuery q, List<string> terms, int limit)
+    {
+        if (embedder == null || terms.Count == 0) return [];
+        try
+        {
+            using var lease = embedder.Acquire();
+            var vector = lease.Embedder.Embed([string.Join(" ", terms)], EmbedKind.Query)[0];
+            return VectorSearch.Find(session, q, vector, embedder.Space, limit, embedder.MinSimilarity);
+        }
+        // The semantic step is optional: a missing or broken model must not take the text search down with it.
+        catch (Exception e) when (e is not OperationCanceledException) { return []; }
     }
 
     private static IEnumerable<SearchHit> Matched(IReadOnlyList<SegmentRow> rows, int tier) =>

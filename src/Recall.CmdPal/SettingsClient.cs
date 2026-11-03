@@ -26,6 +26,8 @@ internal static class SettingsClient
 
     public static Task<SettingsResult> RemoveExcludeAsync(string pattern) => CallAsync(IpcOps.RemoveExclude, pattern);
 
+    public static Task<SettingsResult> SetSimilarityAsync(string value) => CallAsync(IpcOps.SetSimilarity, value);
+
     public static Task<SettingsResult> AddTypeAsync(string extension, string group) => CallAsync(IpcOps.AddType, extension, group);
 
     public static Task<SettingsResult> RemoveTypeAsync(string extension) => CallAsync(IpcOps.RemoveType, extension);

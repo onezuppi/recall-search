@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Recall.Core.Config;
 
+public enum EmbeddingDevice { Cpu, Gpu, Npu }
+
 public sealed record RootFolder(string Path, bool Watched, string? Name = null);
 
 public static class RecallPaths
@@ -18,6 +20,21 @@ public sealed record RecallConfig(
 {
     public long MaxTextBytes { get; init; } = 2 * 1024 * 1024;
     public long MaxImageBytes { get; init; } = 50 * 1024 * 1024;
+    /// <summary>Id from <c>ModelCatalog</c>; null turns embeddings off.</summary>
+    public string? EmbeddingModel { get; init; }
+    public EmbeddingDevice EmbeddingDevice { get; init; } = EmbeddingDevice.Cpu;
+
+    /// <summary>Full path of <c>windows_embed_server.exe</c> (tools/npu-embed-server). Used when the model runs on the NPU.</summary>
+    public string? NpuServerPath { get; init; }
+
+    /// <summary>Folder of the EmbeddingGemma 2 bundle that the NPU server loads.</summary>
+    public string? NpuBundlePath { get; init; }
+
+    /// <summary>
+    /// Cosine similarity under which a semantic hit is not shown. Null keeps the default of the chosen model.
+    /// Raise it to see fewer, surer semantic hits; lower it to see more.
+    /// </summary>
+    public float? EmbeddingMinSimilarity { get; init; }
     public IReadOnlyList<string> OcrLanguages { get; init; } = ["ru", "en-US"];
 
     /// <summary>Extra file types: extension with the leading dot (lower case) to group name. Built-in types cannot be overridden.</summary>
@@ -33,7 +50,7 @@ public sealed record RecallConfig(
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
-        Converters = { new GroupSetConverter() },
+        Converters = { new GroupSetConverter(), new JsonStringEnumConverter() },
     };
 
     public static RecallConfig CreateDefault()

@@ -1,4 +1,6 @@
+using System.Globalization;
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Ignore;
 using Recall.Core.Ipc;
 
@@ -15,6 +17,7 @@ public interface ISettingsEffects
 
     void ExcludesChanged(IReadOnlyList<string> patterns);
     void FileTypesChanged(IReadOnlyDictionary<string, string> types);
+    void SimilarityChanged(float minSimilarity);
 }
 
 /// <summary>
@@ -44,7 +47,8 @@ public sealed class SettingsController(
         return new IpcSettings(
             [.. c.Roots.Select(r => new IpcRoot(r.Path, r.Watched))],
             [.. c.GlobalIgnorePatterns],
-            [.. c.CustomFileTypes.OrderBy(t => t.Key).Select(t => new IpcFileType(t.Key, t.Value))]);
+            [.. c.CustomFileTypes.OrderBy(t => t.Key).Select(t => new IpcFileType(t.Key, t.Value))],
+            MinSimilarity(c));
     }
 
     public IpcResponse Handle(IpcRequest r) => r.Op switch
@@ -57,6 +61,7 @@ public sealed class SettingsController(
         IpcOps.RemoveExclude => Change(c => RemoveExclude(c, r.Value)),
         IpcOps.AddType => Change(c => AddType(c, r.Value, r.Target)),
         IpcOps.RemoveType => Change(c => RemoveType(c, r.Value)),
+        IpcOps.SetSimilarity => Change(c => SetSimilarity(c, r.Value)),
         _ => new IpcResponse(false, "unknown operation"),
     };
 
@@ -117,6 +122,20 @@ public sealed class SettingsController(
         if (!c.CustomFileTypes.ContainsKey(ext)) return Edit.Refuse("File type is not in the list");
         var types = c.CustomFileTypes.Where(t => t.Key != ext).ToDictionary(t => t.Key, t => t.Value);
         return new Edit(c with { CustomFileTypes = types }, After: () => effects.FileTypesChanged(types));
+    }
+
+    /// <summary>The effective floor: the user's value, else the default of the chosen model. Null while semantic search is off.</summary>
+    private static double? MinSimilarity(RecallConfig c) =>
+        c.EmbeddingModel == null ? null : c.EmbeddingMinSimilarity ?? ModelCatalog.Find(c.EmbeddingModel)?.MinSimilarity;
+
+    private Edit SetSimilarity(RecallConfig c, string? value)
+    {
+        // The extension sends what the user typed: accept both "0.84" and "0,84".
+        if (!float.TryParse(value?.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            || !float.IsFinite(number) || number is < 0f or > 1f)
+            return Edit.Refuse("Similarity must be a number from 0 to 1");
+        if (c.EmbeddingModel == null) return Edit.Refuse("Semantic search is off in config.json");
+        return new Edit(c with { EmbeddingMinSimilarity = number }, After: () => effects.SimilarityChanged(number));
     }
 
     private const string ListError = "List must be fast or slow";

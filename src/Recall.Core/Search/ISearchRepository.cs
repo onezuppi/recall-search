@@ -5,6 +5,12 @@ public sealed record SegmentRow(string Path, string Group, string Locator, strin
 
 public sealed record FileRow(string Path, string Group, DateTime Modified, long Size);
 
+/// <summary>A stored chunk vector with the file it belongs to. The vector itself is passed next to it, see <see cref="VectorVisitor"/>.</summary>
+public sealed record VectorRow(string Path, string Group, string Locator, DateTime Modified, long Size, long SegmentId);
+
+/// <summary>Called once per stored vector. The span is valid only during the call.</summary>
+public delegate void VectorVisitor(VectorRow row, ReadOnlySpan<float> vector);
+
 /// <summary>Read side of the index. Opens one session per search so that all queries of a search share a connection.</summary>
 public interface ISearchRepository
 {
@@ -23,6 +29,12 @@ public interface ISearchSession : IDisposable
 
     /// <summary>Files whose path contains every term, newest first.</summary>
     IReadOnlyList<FileRow> MatchFileNames(ParsedQuery filter, IReadOnlyList<string> terms, int limit);
+
+    /// <summary>
+    /// Passes every chunk vector of <paramref name="space"/> (file x chunk) that satisfies the filters to <paramref name="visit"/>.
+    /// Vectors with another length than <paramref name="dimensions"/> are skipped. The similarity math belongs to the caller.
+    /// </summary>
+    void ScanVectors(ParsedQuery filter, string space, int dimensions, VectorVisitor visit);
 
     /// <summary>Start of a segment's text, or null when the segment is gone.</summary>
     string? SegmentText(long segmentId);

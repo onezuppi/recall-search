@@ -37,11 +37,12 @@ public class AgentHostTests : IDisposable
         try { Directory.Delete(_dir, true); } catch { }
     }
 
-    private AgentHost Start(TimeSpan debounce, PauseOptions? activity = null)
+    private AgentHost Start(TimeSpan debounce, PauseOptions? activity = null, string? embeddingModel = null, HttpClient? http = null)
     {
         var groups = new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase);
-        var config = new RecallConfig([new RootFolder(Root, true)], groups, []);
-        var host = new AgentHost(config, new AgentOptions(Db, _pipe, debounce, _ => false, Log: _log, Activity: activity));
+        var config = new RecallConfig([new RootFolder(Root, true)], groups, []) { EmbeddingModel = embeddingModel };
+        var host = new AgentHost(config, new AgentOptions(
+            Db, _pipe, debounce, _ => false, Log: _log, Activity: activity, Http: http, ModelsRoot: Path.Combine(_dir, "models")));
         _run = Task.Run(() => host.RunAsync(_cts.Token));
         Assert.True(host.Watching.Wait(TimeSpan.FromSeconds(10)), "watchers did not start");
         return host;
@@ -60,6 +61,20 @@ public class AgentHostTests : IDisposable
     }
 
     private bool Found(string word) => SearchEngine.ForDatabase(Db).Search(word, 5).Count > 0;
+
+    private sealed class OfflineHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new HttpRequestException("offline");
+    }
+
+    [Fact]
+    public async Task Agent_survives_embedding_model_that_cannot_be_downloaded()
+    {
+        Start(TimeSpan.FromMilliseconds(200), embeddingModel: "multilingual-e5-small", http: new HttpClient(new OfflineHandler()));
+        File.WriteAllText(Path.Combine(Root, "note.txt"), "pelican migration notes");
+        await WaitFor(() => Found("pelican"), "word pelican");
+    }
 
     [Fact]
     public async Task New_file_in_watched_root_becomes_searchable_soon()

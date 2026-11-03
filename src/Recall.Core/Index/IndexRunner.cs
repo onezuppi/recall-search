@@ -1,9 +1,9 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Hashing;
 using System.Threading.Channels;
 using Recall.Core.Activity;
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Ocr;
@@ -11,36 +11,17 @@ using Recall.Core.Scan;
 
 namespace Recall.Core.Index;
 
-public sealed record RunProgress(string Root, long Done, long Total);
-
-/// <summary>
-/// Counts and stage times of one pass. Stage times are summed busy time across workers.
-/// <see cref="Ocr"/> covers images embedded in documents; OCR of standalone image files is part of <see cref="Extract"/>.
-/// </summary>
-public sealed record RunReport(
-    long Added, long Changed, long Removed, long Hashed, long Extracted, long Deduped, long Failed, long Skipped, long MissingRoots,
-    TimeSpan Scan, TimeSpan Hash, TimeSpan Extract, TimeSpan Ocr, TimeSpan Elapsed,
-    long DirsListed = 0, long DirsReused = 0);
-
 /// <param name="workers">Files processed at the same time; null selects <see cref="DefaultWorkers"/>. Benchmarks pass 1 for single-thread figures.</param>
 /// <param name="pause">While paused no new root, file or embedded image is started; work in flight finishes.</param>
+/// <param name="embeddings">With <paramref name="embedder"/>, vectors are made once per pass after the files are stored. Null keeps embeddings off.</param>
 /// <param name="fullScanInterval">Longest time a root may go without a full walk in <see cref="ScanMode.Auto"/>; null selects 7 days.</param>
 /// <param name="scanThreads">Directories listed at the same time during a scan; null selects <see cref="DefaultScanThreads"/>.</param>
 public sealed class IndexRunner(
     IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null,
-    TimeSpan? fullScanInterval = null, int? scanThreads = null)
+    TimeSpan? fullScanInterval = null, int? scanThreads = null, IEmbeddingRepository? embeddings = null, EmbedderHost? embedder = null)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
     private readonly RootScanPlanner planner = new(store, policy, fullScanInterval, scanThreads ?? DefaultScanThreads);
-
-    private sealed class Counters
-    {
-        public long Added, Changed, Removed, Hashed, Extracted, Deduped, Failed, Skipped, MissingRoots;
-        public long ScanTicks, HashTicks, ExtractTicks, OcrTicks, DirsListed, DirsReused;
-        /// <summary>Directories with a file skipped for now; their remembered time is dropped so the next fast pass lists them.</summary>
-        public readonly ConcurrentDictionary<string, byte> RetryDirectories = new(StringComparer.OrdinalIgnoreCase);
-        public readonly ConcurrentDictionary<UInt128, TaskCompletionSource<long>> Inflight = new();
-    }
 
     /// <summary>Directory listing is mostly waiting for the disk, so more threads than cores help. Measured: 1 thread 4 min 39 s, 8 threads 1 min 18 s, 16 threads 45 s on 200k folders.</summary>
     public static int DefaultScanThreads { get; } = Math.Clamp(Environment.ProcessorCount, 4, 16);
@@ -55,7 +36,7 @@ public sealed class IndexRunner(
         RootHints? hints = null)
     {
         var total = Stopwatch.StartNew();
-        var c = new Counters();
+        var c = new RunCounters();
         foreach (var root in roots.OrderByDescending(r => r.Watched))
         {
             await WaitIfPausedAsync(ct);
@@ -80,6 +61,7 @@ public sealed class IndexRunner(
             walk.Commit(c.RetryDirectories.Keys);
             c.RetryDirectories.Clear();
         }
+        await EmbedAsync(c, ct);
         return Report(c, total.Elapsed);
     }
 
@@ -87,7 +69,7 @@ public sealed class IndexRunner(
     public async Task<RunReport> IndexFilesAsync(RootFolder root, IReadOnlyList<string> paths, CancellationToken ct)
     {
         var total = Stopwatch.StartNew();
-        var c = new Counters();
+        var c = new RunCounters();
         var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
         var work = new List<FileRecord>();
         var gone = new List<string>();
@@ -105,6 +87,7 @@ public sealed class IndexRunner(
         if (gone.Count > 0) { store.RemoveFiles(gone); c.Removed += gone.Count; }
         c.Added += work.Count;
         await ProcessAsync(work, rootPath, c, null, ct);
+        await EmbedAsync(c, ct);
         return Report(c, total.Elapsed);
     }
 
@@ -114,12 +97,26 @@ public sealed class IndexRunner(
         return pause?.WaitWhilePausedAsync(ct) ?? Task.CompletedTask;
     }
 
-    private static RunReport Report(Counters c, TimeSpan elapsed) => new(
+    /// <summary>A failing model never fails the pass: the files are already stored and searchable, the error goes to the report.</summary>
+    private async Task EmbedAsync(RunCounters c, CancellationToken ct)
+    {
+        if (embeddings == null || embedder == null) return;
+        try
+        {
+            var stats = await new EmbeddingStage(embeddings, embedder, pause: pause).RunAsync(ct);
+            c.EmbeddedChunks += stats.Chunks;
+            c.EmbedTicks += stats.Busy.Ticks;
+        }
+        catch (EmbeddingUnavailableException) { /* the model is not downloaded; the next pass retries */ }
+        catch (Exception e) when (e is not OperationCanceledException) { c.EmbedError = $"{e.GetType().Name}: {e.Message}"; }
+    }
+
+    private static RunReport Report(RunCounters c, TimeSpan elapsed) => new(
         c.Added, c.Changed, c.Removed, c.Hashed, c.Extracted, c.Deduped, c.Failed, c.Skipped, c.MissingRoots,
         TimeSpan.FromTicks(c.ScanTicks), TimeSpan.FromTicks(c.HashTicks), TimeSpan.FromTicks(c.ExtractTicks),
-        TimeSpan.FromTicks(c.OcrTicks), elapsed, c.DirsListed, c.DirsReused);
+        TimeSpan.FromTicks(c.OcrTicks), elapsed, c.DirsListed, c.DirsReused, c.EmbeddedChunks, TimeSpan.FromTicks(c.EmbedTicks), c.EmbedError);
 
-    private async Task ProcessAsync(List<FileRecord> work, string root, Counters c, IProgress<RunProgress>? progress, CancellationToken ct)
+    private async Task ProcessAsync(List<FileRecord> work, string root, RunCounters c, IProgress<RunProgress>? progress, CancellationToken ct)
     {
         if (work.Count == 0) return;
         var channel = Channel.CreateBounded<FileRecord>(64);
@@ -141,7 +138,7 @@ public sealed class IndexRunner(
         await Task.WhenAll(workers);
     }
 
-    private async Task ProcessFileAsync(FileRecord f, string root, Counters c, CancellationToken ct)
+    private async Task ProcessFileAsync(FileRecord f, string root, RunCounters c, CancellationToken ct)
     {
         try
         {
@@ -190,13 +187,13 @@ public sealed class IndexRunner(
         }
     }
 
-    private static void Retry(FileRecord f, Counters c)
+    private static void Retry(FileRecord f, RunCounters c)
     {
         Interlocked.Increment(ref c.Skipped);
         c.RetryDirectories.TryAdd(Path.GetDirectoryName(f.Path)!, 0);
     }
 
-    private async Task<long> ExtractAndStoreAsync(FileRecord f, UInt128 hash, Counters c, CancellationToken ct)
+    private async Task<long> ExtractAndStoreAsync(FileRecord f, UInt128 hash, RunCounters c, CancellationToken ct)
     {
         var ext = Path.GetExtension(f.Path);
         var extractor = extractors.FirstOrDefault(e => e.CanHandle(ext)) ?? throw new ExtractException("no extractor for " + ext);

@@ -1,6 +1,7 @@
 using Recall.Agent;
 using Recall.Core.Activity;
 using Recall.Core.Config;
+using Recall.Core.Embed;
 using Recall.Core.Extract;
 using Recall.Core.Ignore;
 using Recall.Core.Index;
@@ -38,6 +39,8 @@ if (cli.DbPath == null && !File.Exists(configPath)) config.Save(configPath);
 if (cli.Roots.Count > 0)
     config = config with { Roots = cli.Roots.Select(r => new RootFolder(Path.GetFullPath(r), false)).ToList() };
 
+if (cli.EmbeddingModel != null) config = config with { EmbeddingModel = cli.EmbeddingModel };
+
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 
@@ -48,9 +51,14 @@ try
     if (cli.Once)
     {
         using var store = SqliteIndexRepository.Open(dbPath);
-        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, scanThreads: cli.ScanThreads);
+        await EmbeddingSetup.EnsureModelAsync(config, EmbeddingSetup.ModelsRoot, new HttpClient(), log.Info, shutdown.Token);
+        var embedder = EmbedderHost.Create(config, EmbeddingSetup.ModelsRoot, TimeSpan.Zero);
+        var runner = IndexRunnerFactory.Create(config, store, new IgnorePolicy(config), cli.Workers, scanThreads: cli.ScanThreads, embedder: embedder);
         var report = await runner.RunAsync(config.Roots, null, shutdown.Token, cli.Fast ? ScanMode.Auto : ScanMode.Full);
-        log.Info($"one-shot pass done: {report}");
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        GC.Collect();
+        log.Info($"one-shot pass done: {report}; peak working set {self.PeakWorkingSet64 / (1024 * 1024)} MB, " +
+                 $"current {Environment.WorkingSet / (1024 * 1024)} MB");
         return 0;
     }
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Recall.Core.Ipc;
 
 namespace Recall.CmdPal;
@@ -49,6 +50,14 @@ internal static class SettingsSpecs
             new AddSpec("Extension, for example log or .sql", "Add file type", (ext, group) => SettingsClient.AddTypeAsync(ext, group),
                 "File group", Groups),
             SettingsClient.RemoveTypeAsync),
+        new ListSpec(
+            "Semantic search threshold",
+            "Files whose meaning is less similar to the query than this number are hidden. Raise it for fewer, surer results, "
+            + "lower it for more. The value is a cosine similarity from 0 to 1 and depends on the model.",
+            "Semantic search is off. Set \"embeddingModel\" in config.json to turn it on.",
+            s => s.MinSimilarity is { } v ? [new ListEntry("", $"Current threshold  {v.ToString("0.00", CultureInfo.InvariantCulture)}")] : [],
+            new AddSpec("New threshold, for example 0.84", "Save threshold", (value, _) => SettingsClient.SetSimilarityAsync(value)),
+            null),
     ];
 
     private static ListSpec Folders(string title, string help, string empty, bool watched, string moveButton, string moveTo, AddSpec? add) => new(

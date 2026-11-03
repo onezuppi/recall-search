@@ -218,3 +218,15 @@ dotnet test
 - [Дорожная карта](docs/roadmap.md)
 - [Спецификация](docs/superpowers/specs/2026-11-03-recall-search-design.md)
 - [План 1](docs/superpowers/plans/2026-11-03-recall-search-01-text-slice.md)
+
+## Поиск по смыслу (по умолчанию выключен)
+
+Чтобы включить, добавьте в `%LOCALAPPDATA%\RecallSearch\config.json` поле `"embeddingModel": "multilingual-e5-small"` (поле `"embeddingDevice"` пока поддерживает только `"Cpu"`).
+
+- При следующем запуске агент скачает модель с Hugging Face в `%LOCALAPPDATA%\RecallSearch\models` (около 123 МБ, с проверкой SHA-256, докачка поддерживается).
+- Модель грузится в память на время индексации и на время ответа на запрос, потом выгружается (через 60 секунд простоя).
+- Векторы лежат в таблице `embeddings` рядом с полнотекстовым индексом. При смене модели старые векторы остаются, новые считаются заново.
+- Если модель не скачана, поиск работает как раньше, только по тексту.
+- Порог похожести (по умолчанию 0.84) меняется в настройках расширения Command Palette, раздел «Semantic search threshold», или полем `"embeddingMinSimilarity"` в `config.json`. Чем выше число, тем меньше и надёжнее смысловых результатов.
+- Модель на NPU (EmbeddingGemma 2) подключается отдельным провайдером: `"embeddingModel": "embeddinggemma2-npu"`, `"embeddingDevice": "Npu"`, `"npuServerPath"`, `"npuBundlePath"`. Сборка сервера и протокол: `tools/npu-embed-server/README.md`.
+- Цифры скорости и памяти: `docs/benchmarks/2026-11-plan2-embeddings.md`.
