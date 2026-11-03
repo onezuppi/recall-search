@@ -19,62 +19,8 @@ public sealed class IndexStore : IDisposable
         var db = new SqliteConnection($"Data Source={dbPath}");
         db.Open();
         var store = new IndexStore(db);
-        store.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=OFF;");
-        store.CreateSchema();
+        IndexSchema.Create(db);
         return store;
-    }
-
-    private void CreateSchema()
-    {
-        try
-        {
-            Exec("""
-                CREATE TABLE IF NOT EXISTS files(
-                  id INTEGER PRIMARY KEY,
-                  path TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                  root TEXT NOT NULL COLLATE NOCASE,
-                  size INTEGER NOT NULL,
-                  mtime INTEGER NOT NULL,
-                  content_id INTEGER NULL,
-                  status TEXT NOT NULL,
-                  error TEXT NULL);
-                CREATE INDEX IF NOT EXISTS files_root ON files(root);
-                CREATE INDEX IF NOT EXISTS files_content ON files(content_id);
-                CREATE TABLE IF NOT EXISTS contents(
-                  id INTEGER PRIMARY KEY,
-                  hash BLOB NOT NULL UNIQUE,
-                  grp TEXT NOT NULL,
-                  extracted_at INTEGER NOT NULL);
-                CREATE TABLE IF NOT EXISTS segments(
-                  id INTEGER PRIMARY KEY,
-                  content_id INTEGER NOT NULL,
-                  locator TEXT NOT NULL,
-                  text TEXT NOT NULL);
-                CREATE INDEX IF NOT EXISTS segments_content ON segments(content_id);
-                CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(
-                  text, content='segments', content_rowid='id', tokenize='trigram');
-                CREATE TRIGGER IF NOT EXISTS segments_ai AFTER INSERT ON segments BEGIN
-                  INSERT INTO segments_fts(rowid, text) VALUES (new.id, new.text);
-                END;
-                CREATE TRIGGER IF NOT EXISTS segments_ad AFTER DELETE ON segments BEGIN
-                  INSERT INTO segments_fts(segments_fts, rowid, text) VALUES ('delete', old.id, old.text);
-                END;
-                """);
-        }
-        catch (SqliteException e) when (e.Message.Contains("tokenizer", StringComparison.OrdinalIgnoreCase)
-                                        || e.Message.Contains("fts5", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "This SQLite build has no FTS5 trigram tokenizer (SQLite 3.34 or newer with FTS5 is required).", e);
-        }
-    }
-
-    private void Exec(string sql, params (string, object?)[] args)
-    {
-        using var cmd = _db.CreateCommand();
-        cmd.CommandText = sql;
-        foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
     }
 
     private static byte[] HashBytes(UInt128 hash)
