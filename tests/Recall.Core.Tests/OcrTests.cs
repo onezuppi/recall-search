@@ -62,4 +62,13 @@ public class OcrTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public async Task Concurrent_calls_on_one_instance_all_succeed()
+    {
+        var ocr = new WindowsOcr(["en-US"], concurrency: 3);
+        var image = Render("Order 7305 shipped");
+        var results = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => Task.Run(() => ocr.RecognizeAsync(image, default))));
+        Assert.All(results, t => Assert.Contains("7305", t));
+    }
 }

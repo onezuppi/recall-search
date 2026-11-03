@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Channels;
 using Recall.Core.Extract;
 using Windows.Globalization;
 using Windows.Graphics.Imaging;
@@ -7,37 +8,53 @@ using Windows.Storage.Streams;
 
 namespace Recall.Core.Ocr;
 
-/// <summary>Windows.Media.Ocr with one engine per installed language; texts are merged and duplicate lines removed.</summary>
+/// <summary>
+/// Windows.Media.Ocr with one engine pool per installed language; texts are merged and duplicate lines removed.
+/// A single OcrEngine rejects overlapping RecognizeAsync calls, so each call borrows an engine from the pool.
+/// </summary>
 public sealed class WindowsOcr : IOcr
 {
-    private readonly List<(string Tag, OcrEngine Engine)> _engines = [];
+    private readonly List<(string Tag, Channel<OcrEngine> Pool)> _pools = [];
 
-    public WindowsOcr(IReadOnlyList<string> languages)
+    /// <param name="concurrency">Engines per language, i.e. how many images can be recognized at the same time.</param>
+    public WindowsOcr(IReadOnlyList<string> languages, int concurrency = 1)
     {
+        concurrency = Math.Max(1, concurrency);
         foreach (var tag in languages)
         {
             try
             {
                 var lang = new Language(tag);
-                if (!OcrEngine.IsLanguageSupported(lang)) continue;
-                var engine = OcrEngine.TryCreateFromLanguage(lang);
-                if (engine != null) _engines.Add((tag, engine));
+                if (OcrEngine.IsLanguageSupported(lang)) AddPool(tag, () => OcrEngine.TryCreateFromLanguage(lang), concurrency);
             }
             catch (Exception) { /* invalid tag or language pack missing */ }
         }
-        if (_engines.Count == 0)
+        if (_pools.Count == 0)
         {
-            var fallback = OcrEngine.TryCreateFromUserProfileLanguages();
-            if (fallback != null) _engines.Add((fallback.RecognizerLanguage.LanguageTag, fallback));
+            var probe = OcrEngine.TryCreateFromUserProfileLanguages();
+            if (probe != null)
+                AddPool(probe.RecognizerLanguage.LanguageTag, OcrEngine.TryCreateFromUserProfileLanguages, concurrency);
         }
     }
 
     /// <summary>Configured languages that have an OCR engine on this machine.</summary>
-    public IReadOnlyList<string> AvailableLanguages => _engines.Select(e => e.Tag).ToList();
+    public IReadOnlyList<string> AvailableLanguages => _pools.Select(p => p.Tag).ToList();
+
+    private void AddPool(string tag, Func<OcrEngine?> create, int size)
+    {
+        var pool = Channel.CreateBounded<OcrEngine>(size);
+        for (var i = 0; i < size; i++)
+        {
+            var engine = create();
+            if (engine == null) return;
+            pool.Writer.TryWrite(engine);
+        }
+        _pools.Add((tag, pool));
+    }
 
     public async Task<string> RecognizeAsync(byte[] image, CancellationToken ct)
     {
-        if (_engines.Count == 0) throw new ExtractException("no OCR language is installed");
+        if (_pools.Count == 0) throw new ExtractException("no OCR language is installed");
         SoftwareBitmap bitmap;
         try { bitmap = await DecodeAsync(image, ct); }
         catch (OperationCanceledException) { throw; }
@@ -47,15 +64,19 @@ public sealed class WindowsOcr : IOcr
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var lines = new List<string>();
-            foreach (var (_, engine) in _engines)
+            foreach (var (_, pool) in _pools)
             {
-                ct.ThrowIfCancellationRequested();
-                var result = await engine.RecognizeAsync(bitmap).AsTask(ct);
-                foreach (var line in result.Lines)
+                var engine = await pool.Reader.ReadAsync(ct);
+                try
                 {
-                    var t = line.Text.Trim();
-                    if (t.Length > 0 && seen.Add(t)) lines.Add(t);
+                    var result = await engine.RecognizeAsync(bitmap).AsTask(ct);
+                    foreach (var line in result.Lines)
+                    {
+                        var t = line.Text.Trim();
+                        if (t.Length > 0 && seen.Add(t)) lines.Add(t);
+                    }
                 }
+                finally { pool.Writer.TryWrite(engine); }
             }
             return string.Join("\n", lines);
         }

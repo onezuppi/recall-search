@@ -44,7 +44,7 @@ try
     if (cli.Once)
     {
         using var store = IndexStore.Open(dbPath);
-        var ocr = new WindowsOcr(config.OcrLanguages);
+        var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         var policy = new IgnorePolicy(config);
         var runner = new IndexRunner(store, policy, extractors, ocr);

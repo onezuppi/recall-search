@@ -29,7 +29,8 @@ public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnly
         public readonly ConcurrentDictionary<UInt128, TaskCompletionSource<long>> Inflight = new();
     }
 
-    private static readonly int Workers = Math.Max(1, Environment.ProcessorCount / 2);
+    /// <summary>Number of files processed at the same time. OCR pools should be at least this large.</summary>
+    public static int DefaultWorkers { get; } = Math.Max(1, Environment.ProcessorCount / 2);
 
     public async Task<RunReport> RunAsync(IReadOnlyList<RootFolder> roots, IProgress<RunProgress>? progress, CancellationToken ct)
     {
@@ -93,7 +94,7 @@ public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnly
         if (work.Count == 0) return;
         var channel = Channel.CreateBounded<FileRecord>(64);
         long done = 0;
-        var workers = Enumerable.Range(0, Workers).Select(_ => Task.Run(async () =>
+        var workers = Enumerable.Range(0, DefaultWorkers).Select(_ => Task.Run(async () =>
         {
             await foreach (var f in channel.Reader.ReadAllAsync(ct))
             {

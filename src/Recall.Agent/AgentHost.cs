@@ -35,7 +35,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options)
     {
         using var store = IndexStore.Open(options.DbPath);
         _policy = new IgnorePolicy(config, options.IsSystemPath);
-        var ocr = new WindowsOcr(config.OcrLanguages);
+        var ocr = new WindowsOcr(config.OcrLanguages, IndexRunner.DefaultWorkers);
         IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
         _runner = new IndexRunner(store, _policy, extractors, ocr);
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log);
