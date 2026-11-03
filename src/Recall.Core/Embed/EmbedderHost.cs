@@ -8,7 +8,8 @@ namespace Recall.Core.Embed;
 /// </summary>
 public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan unloadDelay, float minSimilarity = 0f) : IDisposable
 {
-    private static readonly IReadOnlyList<IEmbedderProvider> DefaultProviders = [new OnnxE5Provider()];
+    private static IReadOnlyList<IEmbedderProvider> ProvidersFor(RecallConfig config) =>
+        [new OnnxE5Provider(), new TaconiteNpuProvider(config.NpuServerPath, config.NpuBundlePath)];
 
     private readonly object _gate = new();
     private IEmbedder? _embedder;
@@ -51,7 +52,7 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
         return new EmbedderHost(space, () =>
         {
             if (spec == null) throw new EmbeddingUnavailableException($"unknown embedding model '{config.EmbeddingModel}'");
-            var provider = (providers ?? DefaultProviders).FirstOrDefault(p => p.Supports(spec, config.EmbeddingDevice))
+            var provider = (providers ?? ProvidersFor(config)).FirstOrDefault(p => p.Supports(spec, config.EmbeddingDevice))
                 ?? throw new NotSupportedException($"model {spec.Id} cannot run on {config.EmbeddingDevice} yet");
             return provider.Create(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), config.EmbeddingDevice);
         }, unloadDelay ?? TimeSpan.FromSeconds(60), config.EmbeddingMinSimilarity ?? spec?.MinSimilarity ?? 0f);

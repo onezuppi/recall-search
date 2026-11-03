@@ -210,4 +210,5 @@ dotnet test
 - Векторы лежат в таблице `embeddings` рядом с полнотекстовым индексом. При смене модели старые векторы остаются, новые считаются заново.
 - Если модель не скачана, поиск работает как раньше, только по тексту.
 - Порог похожести (по умолчанию 0.84) меняется в настройках расширения Command Palette, раздел «Semantic search threshold», или полем `"embeddingMinSimilarity"` в `config.json`. Чем выше число, тем меньше и надёжнее смысловых результатов.
+- Модель на NPU (EmbeddingGemma 2) подключается отдельным провайдером: `"embeddingModel": "embeddinggemma2-npu"`, `"embeddingDevice": "Npu"`, `"npuServerPath"`, `"npuBundlePath"`. Сборка сервера и протокол: `tools/npu-embed-server/README.md`.
 - Цифры скорости и памяти: `docs/benchmarks/2026-11-plan2-embeddings.md`.

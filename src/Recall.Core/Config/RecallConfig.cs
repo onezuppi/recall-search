@@ -24,6 +24,12 @@ public sealed record RecallConfig(
     public string? EmbeddingModel { get; init; }
     public EmbeddingDevice EmbeddingDevice { get; init; } = EmbeddingDevice.Cpu;
 
+    /// <summary>Full path of <c>windows_embed_server.exe</c> (tools/npu-embed-server). Used when the model runs on the NPU.</summary>
+    public string? NpuServerPath { get; init; }
+
+    /// <summary>Folder of the EmbeddingGemma 2 bundle that the NPU server loads.</summary>
+    public string? NpuBundlePath { get; init; }
+
     /// <summary>
     /// Cosine similarity under which a semantic hit is not shown. Null keeps the default of the chosen model.
     /// Raise it to see fewer, surer semantic hits; lower it to see more.

@@ -69,3 +69,27 @@ receipt, "hotel guest platform" found the Russian project description) and is we
 - Batch and single-text vectors differ slightly (cosine 0.9966 in the test) because dynamic int8 quantization scales
   activations per batch. Chunks are sorted by length before batching to keep the padding small.
 - Not measured: GPU and NPU (not implemented in this slice), image vectors, battery draw.
+
+## NPU provider (EmbeddingGemma 2 through `windows_embed_server`), measured 2026-11-04
+
+Same machine. The model bundle is the local `embeddinggemma2-model`, the server is `tools/npu-embed-server`, run through
+`NpuEmbedder` and `EmbedderHost`. Text only, one process, nothing else using the NPU on purpose.
+
+| Item | Value |
+|---|---|
+| Process start until READY | 1.65 s |
+| First request (kernel load) | 0.25 s |
+| 1 chunk of 1000 characters | 167 ms (median of 3) |
+| 16 chunks of 1000 characters | 2.64 s (median of 3), about 165 ms per chunk |
+| Throughput | about 6 chunks per second (the CPU provider above: about 22) |
+| Working set of the server process | about 2 GB |
+| After release (`host.Release()` or the end of a pass) | server process gone |
+
+Text goes through the NPU one chunk at a time (no text batching in the server), so for text the 12-thread CPU is faster
+in this setup. The NPU frees the CPU cores, which matters while the user works.
+
+Separation on the example pair used in the unit test (query "как оплатить счёт за электричество"), cosine to each passage:
+Russian electricity bill 0.814, Russian borscht 0.580, English electricity bill 0.742, English borscht 0.549. The right
+passages are well apart from the wrong ones, a wider spread than the E5 int8 scores above (0.79 to 0.90 for everything).
+This is one query, not a calibration. `ModelSpec.MinSimilarity` for this model stays 0 until someone measures it.
+
