@@ -6,8 +6,8 @@ namespace Recall.Core.Search;
 internal static partial class SnippetText
 {
     public const int SnippetMax = 160;
-    private const int ContextBefore = 150;
-    private const int ContextAfter = 450;
+    private const int ContextBefore = 100;
+    private const int ContextAfter = 250;
     private const string Ellipsis = "…";
 
     [GeneratedRegex(@"\s+")]
@@ -29,7 +29,7 @@ internal static partial class SnippetText
     }
 
     /// <summary>
-    /// Longer text around the first match of any term: about 150 characters before and 450 after, cut at word boundaries,
+    /// Longer text around the first match of any term: about 100 characters before and 250 after, cut at word boundaries,
     /// with an ellipsis on each side that was cut. Without a match the text starts at the beginning.
     /// </summary>
     public static string Context(string text, IReadOnlyList<string> terms)

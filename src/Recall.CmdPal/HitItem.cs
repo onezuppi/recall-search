@@ -24,8 +24,7 @@ internal static class HitItem
             Details = new Details
             {
                 Title = Path.GetFileName(hit.Path),
-                Body = MarkdownHighlight.Apply(hit.Context.Length > 0 ? hit.Context : hit.Snippet, terms),
-                HeroImage = isImage ? new IconInfo(hit.Path) : new IconInfo(string.Empty),
+                Body = Body(hit, terms, isImage),
                 Metadata =
                 [
                     Meta("Folder", folder),
@@ -43,6 +42,14 @@ internal static class HitItem
         };
         if (hit.Locator.Length > 0) item.Tags = [new Tag(hit.Locator)];
         return item;
+    }
+
+    /// <summary>The hero slot draws icon-sized pictures, so an image goes into the markdown body where it gets the full pane width.</summary>
+    private static string Body(IpcHit hit, IReadOnlyList<string> terms, bool isImage)
+    {
+        var text = MarkdownHighlight.Apply(hit.Context.Length > 0 ? hit.Context : hit.Snippet, terms);
+        if (!isImage) return text;
+        return $"![]({new Uri(hit.Path).AbsoluteUri})\n\n{text}";
     }
 
     private static DetailsElement Meta(string key, string value) =>
