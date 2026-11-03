@@ -8,6 +8,10 @@ namespace Recall.Core.Ipc;
 
 public static class PipeClient
 {
+    /// <summary>True when some process currently owns the pipe name. A cheap check that avoids waiting for a connect timeout.</summary>
+    public static bool IsListening(string? pipeName = null) =>
+        File.Exists(@"\\.\pipe\" +(pipeName ?? PipeNames.ForCurrentUser()));
+
     /// <summary>
     /// Sends one request. Throws <see cref="TimeoutException"/> when no server answers in time (agent not running),
     /// <see cref="UntrustedServerException"/> when the server is not the current user's agent at the expected path.

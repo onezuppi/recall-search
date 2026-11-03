@@ -6,6 +6,7 @@ using Recall.Core.Search;
 
 namespace Recall.Core.Tests;
 
+[Collection("AgentPaths")]
 public class AgentHostTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "rs-agent-" + Guid.NewGuid().ToString("N"));

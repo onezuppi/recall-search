@@ -4,6 +4,7 @@ using Recall.Core.Ipc;
 
 namespace Recall.Core.Tests;
 
+[Collection("AgentPaths")]
 public class PipeTests : IDisposable
 {
     private const int MaxRequestBytes = 64 * 1024;
@@ -100,6 +101,14 @@ public class PipeTests : IDisposable
         var buf = new byte[1024];
         var n = await raw.ReadAsync(buf);
         Assert.Contains("\"ok\":false", Encoding.UTF8.GetString(buf, 0, n));
+    }
+
+    [Fact]
+    public void IsListening_reflects_server_presence()
+    {
+        Assert.False(PipeClient.IsListening(_name));
+        StartServer();
+        Assert.True(PipeClient.IsListening(_name));
     }
 
     [Fact]
