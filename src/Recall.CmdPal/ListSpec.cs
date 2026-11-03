@@ -2,29 +2,24 @@ using Recall.Core.Ipc;
 
 namespace Recall.CmdPal;
 
-/// <summary>One entry of a list as shown on the card: the value sent to the agent and a readable label.</summary>
-internal sealed record ListEntry(string Value, string Label);
+/// <summary>What the user changed in a list: the lines now in the box, those added and those removed since the agent's list.</summary>
+internal sealed record ListChange(IReadOnlyList<string> Wanted, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, IpcSettings Current);
 
-/// <summary>An option of a drop-down next to the add field, for example the folder list or the file group.</summary>
-internal sealed record Choice(string Title, string Value);
-
-/// <summary>The field that adds an entry. <see cref="Choices"/> adds a drop-down whose first option is the default.</summary>
-internal sealed record AddSpec(
-    string Placeholder,
-    string Button,
-    Func<string, string, Task<SettingsResult>> Call,
-    string? ChoiceLabel = null,
-    IReadOnlyList<Choice>? Choices = null);
-
-/// <summary>A button that acts on the entry picked in the remove selector, such as moving a folder to the other list.</summary>
-internal sealed record RowAction(string Button, Func<string, Task<SettingsResult>> Call);
-
-/// <summary>What one card on the settings page shows and which agent calls its buttons make.</summary>
+/// <summary>
+/// One card of the settings page: a text box with one entry per line and a Save button.
+/// <see cref="Lines"/> reads the agent's list, <see cref="Normalize"/> cleans one typed line, <see cref="Apply"/> sends the difference.
+/// </summary>
 internal sealed record ListSpec(
     string Title,
     string Help,
-    string Empty,
-    Func<IpcSettings, IEnumerable<ListEntry>> Entries,
-    AddSpec? Add,
-    Func<string, Task<SettingsResult>>? Remove,
-    IReadOnlyList<RowAction>? RowActions = null);
+    string Example,
+    Func<IpcSettings, IEnumerable<string>> Lines,
+    Func<ListChange, Task<SettingsResult>> Apply,
+    Func<string, string>? Normalize = null,
+    StringComparer? Comparer = null,
+    bool Multiline = true)
+{
+    public StringComparer Equality => Comparer ?? StringComparer.OrdinalIgnoreCase;
+
+    public string Clean(string line) => Normalize?.Invoke(line) ?? line;
+}

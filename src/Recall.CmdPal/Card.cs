@@ -15,8 +15,12 @@ internal static class Card
         return block;
     }
 
-    public static JsonNode Input(string id, string placeholder) =>
-        new JsonObject { ["type"] = "Input.Text", ["id"] = id, ["placeholder"] = placeholder };
+    public static JsonNode Input(string id, string placeholder, string value = "", bool multiline = false)
+    {
+        var input = new JsonObject { ["type"] = "Input.Text", ["id"] = id, ["placeholder"] = placeholder, ["isMultiline"] = multiline };
+        if (value.Length > 0) input["value"] = value;
+        return input;
+    }
 
     /// <param name="selected">The preselected value, or null to start with nothing chosen.</param>
     public static JsonNode Choices(string id, string label, IEnumerable<(string Title, string Value)> choices, string? selected)

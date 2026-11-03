@@ -3,67 +3,94 @@ using Recall.Core.Ipc;
 
 namespace Recall.CmdPal;
 
-/// <summary>The cards of the settings page: fast folders, slow folders, exclusions and extra file types.</summary>
+/// <summary>The cards of the settings page: fast folders, slow folders, exclusions, extra file types and the semantic threshold.</summary>
 internal static class SettingsSpecs
 {
-    private static readonly Choice[] FolderLists =
-    [
-        new("Fast list (watched live)", IpcOps.FastList),
-        new("Slow list (scanned only)", IpcOps.SlowList),
-    ];
-
-    private static readonly Choice[] Groups =
-    [
-        new("Text (read as plain text)", "text"),
-        new("Images (read with OCR)", "images"),
-        new("Office documents", "office"),
-        new("PDF", "pdf"),
-    ];
+    private const string DefaultGroup = "text";
 
     public static IReadOnlyList<ListSpec> All { get; } =
     [
-        Folders(
-            "Fast folders",
-            "Watched live: a new or changed file is searchable within seconds. Use it for folders you work in every day.",
-            "No fast folders yet.", watched: true, moveButton: "Move to slow list", moveTo: IpcOps.SlowList,
-            add: new AddSpec("Full folder path, for example D:\\Work", "Add folder", (path, list) => SettingsClient.AddFolderAsync(path, list),
-                "Add to", FolderLists)),
-        Folders(
-            "Slow folders",
-            "Scanned when the agent starts and by its periodic pass, not watched. Cheaper for big or rarely changing folders. Add folders in the card above.",
-            "No slow folders yet.", watched: false, moveButton: "Move to fast list", moveTo: IpcOps.FastList, add: null),
+        Folders("Fast folders",
+            "One folder per line. Watched live: a new or changed file is searchable within seconds. Use it for folders you work in every day.",
+            watched: true),
+        Folders("Slow folders",
+            "One folder per line. Scanned when the agent starts and by its periodic pass, not watched. Cheaper for big or rarely changing folders. "
+            + "To move a folder between the lists, delete its line in one box and save, then add it to the other box and save. "
+            + "A folder already in the other list is moved by adding it here.",
+            watched: false),
         new ListSpec(
             "Exclusions",
-            "Files and folders matching a pattern are never indexed. Glob examples: *.log, node_modules/, secret*.txt. "
+            "One pattern per line. Files and folders matching a pattern are never indexed. Glob: *.log, node_modules/, secret*.txt. "
             + "Regular expression: start with re: and it is matched case-insensitively against the full path with forward slashes, "
             + "for example re:/backup(s)?/ or re:\\.tmp$. Lookaround and backreferences are not supported.",
-            "No exclusions yet.",
-            s => s.Excludes.Select(p => new ListEntry(p, p.StartsWith("re:", StringComparison.Ordinal) ? $"Regex  {p[3..]}" : $"Glob  {p}")),
-            new AddSpec("Pattern, for example *.log or re:/backup(s)?/", "Add exclusion", (p, _) => SettingsClient.AddExcludeAsync(p)),
-            SettingsClient.RemoveExcludeAsync),
+            "*.log\nnode_modules/\nre:/backup(s)?/",
+            s => s.Excludes,
+            c => Edit(c, SettingsClient.AddExcludeAsync, SettingsClient.RemoveExcludeAsync),
+            Comparer: StringComparer.Ordinal),
         new ListSpec(
             "File types",
-            "Files with these extensions are indexed in addition to the built-in types (txt, md, pdf, docx, xlsx, pptx and common images). "
-            + "Examples: log, sql, csv as Text. The group decides how the file is read and must be enabled in the agent configuration.",
-            "No extra file types yet.",
-            s => (s.FileTypes ?? []).Select(t => new ListEntry(t.Extension, $"{t.Extension}  as {t.Group}")),
-            new AddSpec("Extension, for example log or .sql", "Add file type", (ext, group) => SettingsClient.AddTypeAsync(ext, group),
-                "File group", Groups),
-            SettingsClient.RemoveTypeAsync),
+            "One type per line as \"extension group\". Files with these extensions are indexed in addition to the built-in types "
+            + "(txt, md, pdf, docx, xlsx, pptx and common images). Groups: text (plain text), images (OCR), office, pdf. "
+            + "Without a group the file is read as text. The group must be enabled in the agent configuration.",
+            "log text\nsql text\ncsv",
+            s => (s.FileTypes ?? []).Select(t => $"{t.Extension} {t.Group}"),
+            ApplyTypes,
+            Normalize: FileType),
         new ListSpec(
             "Semantic search threshold",
             "Files whose meaning is less similar to the query than this number are hidden. Raise it for fewer, surer results, "
-            + "lower it for more. The value is a cosine similarity from 0 to 1 and depends on the model.",
-            "Semantic search is off. Set \"embeddingModel\" in config.json to turn it on.",
-            s => s.MinSimilarity is { } v ? [new ListEntry("", $"Current threshold  {v.ToString("0.00", CultureInfo.InvariantCulture)}")] : [],
-            new AddSpec("New threshold, for example 0.84", "Save threshold", (value, _) => SettingsClient.SetSimilarityAsync(value)),
-            null),
+            + "lower it for more. A cosine similarity from 0 to 1 that depends on the model. Empty while semantic search is off: "
+            + "set \"embeddingModel\" in config.json to turn it on.",
+            "0.84",
+            s => s.MinSimilarity is { } v ? [v.ToString("0.00", CultureInfo.InvariantCulture)] : [],
+            c => c.Wanted.Count > 0 ? SettingsClient.SetSimilarityAsync(c.Wanted[0]) : Task.FromResult(new SettingsResult(null, "Enter a number between 0 and 1")),
+            Multiline: false),
     ];
 
-    private static ListSpec Folders(string title, string help, string empty, bool watched, string moveButton, string moveTo, AddSpec? add) => new(
-        title, help, empty,
-        s => s.Roots.Where(r => r.Watched == watched).Select(r => new ListEntry(r.Path, r.Path)),
-        add,
-        SettingsClient.RemoveFolderAsync,
-        [new RowAction(moveButton, path => SettingsClient.MoveFolderAsync(path, moveTo))]);
+    private static ListSpec Folders(string title, string help, bool watched) => new(
+        title, help, "D:\\Work\nC:\\Users\\me\\Documents",
+        s => s.Roots.Where(r => r.Watched == watched).Select(r => r.Path),
+        c => ApplyFolders(c, watched),
+        Normalize: line => Path.TrimEndingDirectorySeparator(line.Trim('"', ' ')));
+
+    /// <summary>A folder already in the other list is moved; any other new folder is added. Removals go first.</summary>
+    private static async Task<SettingsResult> ApplyFolders(ListChange c, bool watched)
+    {
+        var list = watched ? IpcOps.FastList : IpcOps.SlowList;
+        var other = new HashSet<string>(
+            c.Current.Roots.Where(r => r.Watched != watched).Select(r => Path.TrimEndingDirectorySeparator(r.Path)), StringComparer.OrdinalIgnoreCase);
+        var calls = c.Removed.Select<string, Func<Task<SettingsResult>>>(p => () => SettingsClient.RemoveFolderAsync(p))
+            .Concat(c.Added.Select<string, Func<Task<SettingsResult>>>(p =>
+                other.Contains(p) ? () => SettingsClient.MoveFolderAsync(p, list) : () => SettingsClient.AddFolderAsync(p, list)));
+        return await SettingsBatch.RunAsync(calls) ?? await SettingsClient.LoadAsync();
+    }
+
+    private static async Task<SettingsResult> Edit(ListChange c, Func<string, Task<SettingsResult>> add, Func<string, Task<SettingsResult>> remove)
+    {
+        var calls = c.Removed.Select<string, Func<Task<SettingsResult>>>(p => () => remove(p))
+            .Concat(c.Added.Select<string, Func<Task<SettingsResult>>>(p => () => add(p)));
+        return await SettingsBatch.RunAsync(calls) ?? await SettingsClient.LoadAsync();
+    }
+
+    /// <summary>A changed group is one new line for the same extension; only extensions that left the list are removed.</summary>
+    private static async Task<SettingsResult> ApplyTypes(ListChange c)
+    {
+        var kept = new HashSet<string>(c.Wanted.Select(Extension), StringComparer.Ordinal);
+        var calls = c.Removed.Where(l => !kept.Contains(Extension(l))).Select<string, Func<Task<SettingsResult>>>(l => () => SettingsClient.RemoveTypeAsync(Extension(l)))
+            .Concat(c.Added.Select<string, Func<Task<SettingsResult>>>(l => () => SettingsClient.AddTypeAsync(Extension(l), Group(l))));
+        return await SettingsBatch.RunAsync(calls) ?? await SettingsClient.LoadAsync();
+    }
+
+    private static string Extension(string line) => line.Split(' ', 2)[0];
+
+    private static string Group(string line) => line.Split(' ', 2) is { Length: 2 } p ? p[1] : DefaultGroup;
+
+    /// <summary>"log", ".LOG text" and "log   text" all become ".log text".</summary>
+    private static string FileType(string line)
+    {
+        var parts = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "";
+        var ext = "." + parts[0].TrimStart('.').ToLowerInvariant();
+        return $"{ext} {(parts.Length > 1 ? parts[1].ToLowerInvariant() : DefaultGroup)}";
+    }
 }
