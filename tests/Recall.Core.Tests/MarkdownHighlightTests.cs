@@ -31,6 +31,24 @@ public class MarkdownHighlightTests
     }
 
     [Fact]
+    public void Headline_is_a_heading_with_a_short_window_around_the_first_match()
+    {
+        var text = "начало длинного текста до того как встретится слово мур и дальше ещё много слов после него";
+        var headline = MarkdownHighlight.Headline(text, ["мур"], 15);
+        Assert.StartsWith("### … ", headline);
+        Assert.EndsWith(" …", headline);
+        Assert.Contains("`мур`", headline);
+        Assert.True(headline.Length < 60);
+    }
+
+    [Fact]
+    public void Headline_has_no_ellipsis_when_the_whole_text_fits_and_is_empty_without_a_match()
+    {
+        Assert.Equal("### a `b` c", MarkdownHighlight.Headline("a b c", ["b"], 40));
+        Assert.Equal("", MarkdownHighlight.Headline("a b c", ["zzz"], 40));
+    }
+
+    [Fact]
     public void No_terms_returns_escaped_text()
     {
         Assert.Equal(@"plain \# text", MarkdownHighlight.Apply("plain # text", []));

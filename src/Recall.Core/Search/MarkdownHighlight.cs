@@ -23,6 +23,22 @@ public static class MarkdownHighlight
         return sb.ToString();
     }
 
+    /// <summary>
+    /// A heading with a short window around the first match, so the pane draws the found words large and the eye lands on them first.
+    /// Empty when nothing matches.
+    /// </summary>
+    public static string Headline(string text, IReadOnlyList<string> terms, int radius = 40)
+    {
+        var ranges = MatchRanges(text, terms);
+        if (ranges.Count == 0) return "";
+        var (matchStart, matchEnd) = ranges[0];
+        var from = Math.Max(0, matchStart - radius);
+        var to = Math.Min(text.Length, matchEnd + radius);
+        if (from > 0 && text.IndexOf(' ', from, matchStart - from) is var s and >= 0) from = s + 1;
+        if (to < text.Length && text.LastIndexOf(' ', to - 1, to - matchEnd) is var e and >= 0) to = e;
+        return "### " + (from > 0 ? "… " : "") + Apply(text[from..to], terms) + (to < text.Length ? " …" : "");
+    }
+
     /// <summary>Sorted, non-overlapping character ranges where any term occurs (case-insensitive).</summary>
     private static List<(int Start, int End)> MatchRanges(string text, IReadOnlyList<string> terms)
     {

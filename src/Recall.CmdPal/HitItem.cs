@@ -36,26 +36,20 @@ internal static class HitItem
                 new CommandContextItem(new CopyTextCommand(hit.Context.Length > 0 ? hit.Context : hit.Snippet) { Name = "Copy text" }),
             ],
         };
-        item.Tags = Tags(hit, terms);
+        if (hit.Locator.Length > 0) item.Tags = [new Tag(hit.Locator)];
         return item;
     }
 
     /// <summary>The hero slot draws icon-sized pictures, so a picture goes into the markdown body as a pane-sized thumbnail.</summary>
     private static string Body(IpcHit hit, IReadOnlyList<string> terms, string? thumbnail)
     {
-        var text = MarkdownHighlight.Apply(hit.Context.Length > 0 ? hit.Context : hit.Snippet, terms);
-        return thumbnail is null ? text : $"![]({new Uri(thumbnail).AbsoluteUri})\n\n{text}";
-    }
-
-    /// <summary>A colored badge with the searched word sits at the row's right edge, which a narrow row never cuts off.</summary>
-    private static ITag[] Tags(IpcHit hit, IReadOnlyList<string> terms)
-    {
-        var tags = new List<ITag>();
-        var term = terms.FirstOrDefault(t => t.Length > 0 && hit.Snippet.Contains(t, StringComparison.OrdinalIgnoreCase));
-        if (term is not null)
-            tags.Add(new Tag(term) { Background = ColorHelpers.FromRgb(255, 214, 10), Foreground = ColorHelpers.FromRgb(20, 20, 20) });
-        if (hit.Locator.Length > 0) tags.Add(new Tag(hit.Locator));
-        return tags.ToArray();
+        var source = hit.Context.Length > 0 ? hit.Context : hit.Snippet;
+        var parts = new List<string>();
+        if (thumbnail is not null) parts.Add($"![]({new Uri(thumbnail).AbsoluteUri})");
+        var headline = MarkdownHighlight.Headline(source, terms);
+        if (headline.Length > 0) parts.Add(headline);
+        parts.Add(MarkdownHighlight.Apply(source, terms));
+        return string.Join("\n\n", parts);
     }
 
     private static DetailsElement Meta(string key, string value) =>
