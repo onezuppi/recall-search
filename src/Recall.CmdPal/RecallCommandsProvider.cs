@@ -6,11 +6,11 @@ namespace Recall.CmdPal;
 public sealed partial class RecallCommandsProvider : CommandProvider
 {
     public const string SearchId = "RecallSearch.Search";
-    public const string SettingsId = "RecallSearch.Settings";
     public const string FallbackId = "RecallSearch.Search.Fallback";
 
     private readonly ICommandItem[] _commands;
     private readonly IFallbackCommandItem[] _fallbacks;
+    private readonly ExtensionSettings _settings = new();
 
     public RecallCommandsProvider()
     {
@@ -24,14 +24,11 @@ public sealed partial class RecallCommandsProvider : CommandProvider
                 Title = "Recall Search",
                 Subtitle = "Find text in documents and images",
             },
-            new CommandItem(new SettingsPage { Id = SettingsId })
-            {
-                Title = "Recall Search settings",
-                Subtitle = "Choose which folders are indexed and which files are skipped",
-            },
         ];
         _fallbacks = [new SearchFallbackItem(FallbackId)];
     }
+
+    public override ICommandSettings? Settings => _settings;
 
     public override ICommandItem[] TopLevelCommands() => _commands;
 
