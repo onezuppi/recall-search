@@ -2,21 +2,36 @@ using System.Numerics.Tensors;
 
 namespace Recall.Core.Search;
 
-/// <summary>Brute-force cosine search over the stored chunk vectors of one embedding space. Vectors are normalized, so the dot product is the cosine.</summary>
+/// <summary>
+/// Brute-force cosine search over the stored chunk vectors of one embedding space. Vectors are normalized, so the dot product is the cosine.
+/// The scan reads only the vector table. Files are looked up afterwards for the best segments alone.
+/// </summary>
 internal static class VectorSearch
 {
+    /// <summary>Best segments kept per wanted result, so that files dropped by the filters or sharing a segment do not leave the list short.</summary>
+    private const int PoolFactor = 10;
+
     /// <summary>The best chunk of each file, best files first. Query filters apply as in the text search.</summary>
     public static List<SearchHit> Find(ISearchSession session, ParsedQuery q, float[] query, string space, int limit, float minSimilarity)
     {
-        var best = new Dictionary<string, (float Score, VectorRow Row)>(StringComparer.OrdinalIgnoreCase);
-        session.ScanVectors(q, space, query.Length, (row, vector) =>
+        var allowed = session.FilteredSegments(q);
+        var best = new Dictionary<long, float>();
+        session.ScanVectors(space, query.Length, (segmentId, vector) =>
         {
+            if (allowed != null && !allowed.Contains(segmentId)) return;
             var score = TensorPrimitives.Dot(query, vector);
             if (score < minSimilarity) return;
-            if (best.TryGetValue(row.Path, out var old) && old.Score >= score) return;
-            best[row.Path] = (score, row);
+            if (!best.TryGetValue(segmentId, out var old) || score > old) best[segmentId] = score;
         });
-        return best.Values.OrderByDescending(b => b.Score).Take(limit)
+        var pool = best.OrderByDescending(b => b.Value).Take(Math.Max(limit, 1) * PoolFactor).Select(b => b.Key).ToList();
+
+        var byPath = new Dictionary<string, (float Score, VectorRow Row)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in session.VectorRows(q, pool))
+        {
+            var score = best[row.SegmentId];
+            if (!byPath.TryGetValue(row.Path, out var old) || score > old.Score) byPath[row.Path] = (score, row);
+        }
+        return byPath.Values.OrderByDescending(b => b.Score).Take(limit)
             .Select(b => new SearchHit(b.Row.Path, b.Row.Group, b.Row.Locator, "", b.Row.Modified, b.Row.Size, b.Score) { SegmentId = b.Row.SegmentId })
             .ToList();
     }

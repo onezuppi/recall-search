@@ -40,6 +40,7 @@ internal sealed partial class SettingsForm : FormContent
     {
         var text = _draft ?? (_state.Current is { } s ? string.Join('\n', _spec.Lines(s)) : "");
         var body = new JsonArray { Card.Text(_spec.Title, bold: true, size: "Medium"), Card.Text(_spec.Help, subtle: true) };
+        if (_spec.Builtin != null) body.Add(Card.Text("Built in, always on and cannot be removed here:\n\n" + _spec.Builtin, subtle: true));
         if (_state.Error != null) body.Add(Card.Text(_state.Error, color: "Attention"));
         body.Add(Card.Input(TextField, _spec.Example, text, _spec.Multiline));
         return Card.Wrap(body, new JsonArray { Card.Submit("Save", SaveAction) });

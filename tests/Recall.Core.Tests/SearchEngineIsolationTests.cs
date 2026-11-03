@@ -7,6 +7,8 @@ namespace Recall.Core.Tests;
 /// <summary>The engine talks to the index only through <see cref="ISearchRepository"/>, so it can run without SQLite.</summary>
 public class SearchEngineIsolationTests
 {
+    private static readonly string VectorPath = Path.Combine("C:", "bill.txt");
+
     private sealed class NoIndex : ISearchRepository
     {
         public ISearchSession? Open() => null;
@@ -19,7 +21,9 @@ public class SearchEngineIsolationTests
         public IReadOnlyList<SegmentRow> ScanSegments(ParsedQuery filter, IReadOnlyList<string> shortTerms, int limit) => [];
         public IReadOnlyList<FileRow> MatchFileNames(ParsedQuery filter, IReadOnlyList<string> terms, int limit) =>
             [new FileRow(@"C:\docs\report.docx", "", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), 10)];
-        public void ScanVectors(ParsedQuery filter, string space, int dimensions, VectorVisitor visit) { }
+        public void ScanVectors(string space, int dimensions, VectorVisitor visit) { }
+        public IReadOnlySet<long>? FilteredSegments(ParsedQuery filter) => null;
+        public IReadOnlyList<VectorRow> VectorRows(ParsedQuery filter, IReadOnlyCollection<long> segmentIds) => [];
         public string? SegmentText(long segmentId) => null;
         public void Dispose() { }
     }
@@ -34,12 +38,18 @@ public class SearchEngineIsolationTests
         public IReadOnlyList<FileRow> MatchFileNames(ParsedQuery filter, IReadOnlyList<string> terms, int limit) => [];
         public string? SegmentText(long segmentId) => segmentId == 1 ? "bill payment due friday" : "borscht recipe";
 
-        public void ScanVectors(ParsedQuery filter, string space, int dimensions, VectorVisitor visit)
+        private static readonly DateTime When = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        public IReadOnlySet<long>? FilteredSegments(ParsedQuery filter) => null;
+
+        public IReadOnlyList<VectorRow> VectorRows(ParsedQuery filter, IReadOnlyCollection<long> segmentIds) =>
+            new[] { new VectorRow(VectorPath, "text", "", When, 1, 1), new VectorRow(Path.Combine("C:", "borscht.txt"), "text", "", When, 1, 2) }
+                .Where(r => segmentIds.Contains(r.SegmentId)).ToList();
+
+        public void ScanVectors(string space, int dimensions, VectorVisitor visit)
         {
             RequestedSpace = space;
-            var when = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            visit(new VectorRow(@"C:\dill.txt", "text", "", when, 1, 1), vectorOf("invoice"));
-            visit(new VectorRow(@"C:\dorscht.txt", "text", "", when, 1, 2), vectorOf("borscht"));
+            visit(1, vectorOf("invoice"));
+            visit(2, vectorOf("borscht"));
         }
 
         public void Dispose() { }
@@ -53,7 +63,7 @@ public class SearchEngineIsolationTests
         var fake = new FakeEmbedder();
         var repo = new TwoVectors(w => fake.Embed([w], EmbedKind.Passage)[0]);
         var hits = new SearchEngine(repo, HostWith(fake)).Search("invoice", 5);
-        Assert.Equal([@"C:\dill.txt"], hits.Select(h => h.Path));
+        Assert.Equal([VectorPath], hits.Select(h => h.Path));
         Assert.Equal("fake@1", repo.RequestedSpace);
         Assert.Equal("bill payment due friday", hits[0].Snippet);
     }

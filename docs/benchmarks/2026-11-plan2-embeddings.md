@@ -93,3 +93,19 @@ Russian electricity bill 0.814, Russian borscht 0.580, English electricity bill 
 passages are well apart from the wrong ones, a wider spread than the E5 int8 scores above (0.79 to 0.90 for everything).
 This is one query, not a calibration. `ModelSpec.MinSimilarity` for this model stays 0 until someone measures it.
 
+
+## Vector scan without joins, measured 2026-11-04
+
+Debug build of the test project, same machine, 40000 random normalized vectors of 384 dimensions (one per segment, one file per segment),
+`SearchEngine.Search` with a fixed query vector and the model already loaded, best of 3 warm runs.
+
+| Scan | Time per search |
+|---|---|
+| Before: four-table join per vector (about 8 us per row, measured earlier) | about 320 ms by that rate |
+| Vector table only, `GetBytes` twice per row | 750 ms |
+| Vector table only, `GetFieldValue<byte[]>` once per row (adopted) | 220 ms |
+
+The scan now reads only `segment_id` and `vec`. Files are looked up once, for the 10 x limit best segments. Filters (`in:`, `type:`,
+`after:`, `before:`) become a set of allowed segment ids that is checked during the scan. The row-per-call overhead of the SQLite
+reader dominated, not the dot product. Not adopted: an in-memory vector table (about 60 MB per 40000 vectors, needs invalidation
+when the index changes), see `docs/roadmap.md`.

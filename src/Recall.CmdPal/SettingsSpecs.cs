@@ -1,4 +1,5 @@
 using System.Globalization;
+using Recall.Core.Ignore;
 using Recall.Core.Ipc;
 
 namespace Recall.CmdPal;
@@ -26,7 +27,11 @@ internal static class SettingsSpecs
             "*.log\nnode_modules/\nre:/backup(s)?/",
             s => s.Excludes,
             c => Edit(c, SettingsClient.AddExcludeAsync, SettingsClient.RemoveExcludeAsync),
-            Comparer: StringComparer.Ordinal),
+            Comparer: StringComparer.Ordinal,
+            Builtin: "Folders never entered: " + string.Join(", ", BuiltInRules.DescribeSkippedFolders()) + ".\n\n"
+                + "Files that may hold secrets: " + string.Join(", ", BuiltInRules.DescribeSecrets()) + ".\n\n"
+                + "System places: Windows, Program Files, ProgramData, AppData, Temp, the Recycle Bin and the profiles of other users.\n\n"
+                + "Everything that the .gitignore and .recallignore files inside a folder list. Links and cloud-only files are skipped too."),
         new ListSpec(
             "File types",
             "One type per line as \"extension group\". Files with these extensions are indexed in addition to the built-in types "
@@ -35,7 +40,8 @@ internal static class SettingsSpecs
             "log text\nsql text\ncsv",
             s => (s.FileTypes ?? []).Select(t => $"{t.Extension} {t.Group}"),
             ApplyTypes,
-            Normalize: FileType),
+            Normalize: FileType,
+            Builtin: string.Join("\n\n", BuiltInRules.DescribeTypes())),
         new ListSpec(
             "Semantic search threshold",
             "Files whose meaning is less similar to the query than this number are hidden. Raise it for fewer, surer results, "

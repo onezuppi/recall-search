@@ -7,7 +7,7 @@ internal sealed record ListChange(IReadOnlyList<string> Wanted, IReadOnlyList<st
 
 /// <summary>
 /// One card of the settings page: a text box with one entry per line and a Save button.
-/// <see cref="Lines"/> reads the agent's list, <see cref="Normalize"/> cleans one typed line, <see cref="Apply"/> sends the difference.
+/// <see cref="Builtin"/> lists what the program always does and the box cannot remove. <see cref="Lines"/> reads the agent's list, <see cref="Normalize"/> cleans one typed line, <see cref="Apply"/> sends the difference.
 /// </summary>
 internal sealed record ListSpec(
     string Title,
@@ -17,7 +17,8 @@ internal sealed record ListSpec(
     Func<ListChange, Task<SettingsResult>> Apply,
     Func<string, string>? Normalize = null,
     StringComparer? Comparer = null,
-    bool Multiline = true)
+    bool Multiline = true,
+    string? Builtin = null)
 {
     public StringComparer Equality => Comparer ?? StringComparer.OrdinalIgnoreCase;
 

@@ -37,6 +37,16 @@ public static class BuiltInRules
         return Groups.TryGetValue(extension, out var g) ? g : null;
     }
 
+    /// <summary>Built-in extensions of each group, for display (for example "text: .txt, .md").</summary>
+    public static IReadOnlyList<string> DescribeTypes() =>
+        Groups.GroupBy(g => g.Value).Select(g => $"{g.Key}: {string.Join(", ", g.Select(e => e.Key.TrimStart('.')))}").ToList();
+
+    /// <summary>Built-in folder names that are never entered, for display.</summary>
+    public static IReadOnlyList<string> DescribeSkippedFolders() => [.. SkipFolderNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>Names of files that may hold secrets and are never indexed, for display.</summary>
+    public static IReadOnlyList<string> DescribeSecrets() => [.. SecretExtensions.Select(e => "*" + e), ".env", ".env.*", "id_rsa*"];
+
     private static readonly string[] SecretExtensions = [".pem", ".key", ".pfx", ".p12", ".mafile", ".kdbx", ".ppk"];
 
     public static bool IsSecret(string fileName)

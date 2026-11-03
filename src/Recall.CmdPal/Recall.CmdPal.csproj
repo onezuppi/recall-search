@@ -32,6 +32,7 @@
     <Compile Include="..\Recall.Core\Ipc\Protocol.cs" Link="Ipc\Protocol.cs" />
     <Compile Include="..\Recall.Core\Ipc\PipeClient.cs" Link="Ipc\PipeClient.cs" />
     <Compile Include="..\Recall.Core\Ipc\ListDiff.cs" Link="Ipc\ListDiff.cs" />
+    <Compile Include="..\Recall.Core\Ignore\BuiltInRules.cs" Link="Ignore\BuiltInRules.cs" />
     <Compile Include="..\Recall.Core\Search\QueryParser.cs" Link="Search\QueryParser.cs" />
     <Compile Include="..\Recall.Core\Search\MarkdownHighlight.cs" Link="Search\MarkdownHighlight.cs" />
   </ItemGroup>
