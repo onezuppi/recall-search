@@ -98,6 +98,19 @@ public sealed class IndexStore : IDisposable
         }
     }
 
+    /// <summary>Stored size and mtime ticks of one path, or null when the path is not indexed.</summary>
+    public (long Size, long Mtime)? FileState(string path)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "SELECT size, mtime FROM files WHERE path = $p";
+            cmd.Parameters.AddWithValue("$p", path);
+            using var r = cmd.ExecuteReader();
+            return r.Read() ? (r.GetInt64(0), r.GetInt64(1)) : null;
+        }
+    }
+
     public long? FindContent(UInt128 hash)
     {
         lock (_gate)
