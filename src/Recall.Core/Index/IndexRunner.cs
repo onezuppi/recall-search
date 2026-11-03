@@ -17,14 +17,14 @@ public sealed record RunProgress(string Root, long Done, long Total);
 /// <see cref="Ocr"/> covers images embedded in documents; OCR of standalone image files is part of <see cref="Extract"/>.
 /// </summary>
 public sealed record RunReport(
-    long Added, long Changed, long Removed, long Hashed, long Extracted, long Deduped, long Failed, long Skipped,
+    long Added, long Changed, long Removed, long Hashed, long Extracted, long Deduped, long Failed, long Skipped, long MissingRoots,
     TimeSpan Scan, TimeSpan Hash, TimeSpan Extract, TimeSpan Ocr, TimeSpan Elapsed);
 
 public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr)
 {
     private sealed class Counters
     {
-        public long Added, Changed, Removed, Hashed, Extracted, Deduped, Failed, Skipped;
+        public long Added, Changed, Removed, Hashed, Extracted, Deduped, Failed, Skipped, MissingRoots;
         public long ScanTicks, HashTicks, ExtractTicks, OcrTicks;
         public readonly ConcurrentDictionary<UInt128, TaskCompletionSource<long>> Inflight = new();
     }
@@ -40,6 +40,8 @@ public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnly
             ct.ThrowIfCancellationRequested();
             var sw = Stopwatch.StartNew();
             var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
+            // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
+            if (!Directory.Exists(rootPath)) { c.MissingRoots++; continue; }
             var scanner = new Scanner(policy);
             var scanned = await Task.Run(() => scanner.Scan(root, ct).ToList(), ct);
             var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath));
@@ -82,7 +84,7 @@ public sealed class IndexRunner(IndexStore store, IgnorePolicy policy, IReadOnly
     }
 
     private static RunReport Report(Counters c, TimeSpan elapsed) => new(
-        c.Added, c.Changed, c.Removed, c.Hashed, c.Extracted, c.Deduped, c.Failed, c.Skipped,
+        c.Added, c.Changed, c.Removed, c.Hashed, c.Extracted, c.Deduped, c.Failed, c.Skipped, c.MissingRoots,
         TimeSpan.FromTicks(c.ScanTicks), TimeSpan.FromTicks(c.HashTicks), TimeSpan.FromTicks(c.ExtractTicks),
         TimeSpan.FromTicks(c.OcrTicks), elapsed);
 

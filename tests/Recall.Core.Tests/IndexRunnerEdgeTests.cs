@@ -82,4 +82,19 @@ public class IndexRunnerEdgeTests : RunnerTestBase
         await s.Runner.IndexFilesAsync(root, [p], default);
         Assert.Equal(0, Hits("watcher"));
     }
+
+    [Fact]
+    public async Task Missing_root_does_not_wipe_the_index()
+    {
+        using var s = Make();
+        Write("keep.txt", "survivor words");
+        await s.Runner.RunAsync([R()], null, default);
+        Directory.Delete(Root, true);
+
+        var r = await s.Runner.RunAsync([R()], null, default);
+
+        Assert.Equal(1, r.MissingRoots);
+        Assert.Equal(0, r.Removed);
+        Assert.Equal(1, Hits("survivor"));
+    }
 }
