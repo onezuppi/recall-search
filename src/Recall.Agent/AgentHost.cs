@@ -163,6 +163,26 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         Background($"removal of {root.Path}", () => RemoveRootFilesAsync(root));
     }
 
+    void ISettingsEffects.RootWatchChanged(RootFolder root)
+    {
+        if (!root.Watched)
+        {
+            RootWatcher? w;
+            lock (_watchers) { _watchers.Remove(root.Path, out w); }
+            w?.Dispose();
+            return;
+        }
+        StartWatcher(root);
+        // Nothing observed the folder while it was in the slow list.
+        Background($"catch-up scan of {root.Path}", () => IndexAsync([root], ScanMode.Auto, CancellationToken.None));
+    }
+
+    void ISettingsEffects.FileTypesChanged(IReadOnlyDictionary<string, string> types)
+    {
+        _policy!.SetCustomTypes(types);
+        Background("rescan after file type change", () => IndexAsync(_settings!.Config.Roots, ScanMode.Full, CancellationToken.None));
+    }
+
     void ISettingsEffects.ExcludesChanged(IReadOnlyList<string> patterns)
     {
         _policy!.SetGlobalPatterns(patterns);

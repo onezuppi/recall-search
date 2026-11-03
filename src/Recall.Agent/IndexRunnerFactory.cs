@@ -16,7 +16,13 @@ internal static class IndexRunnerFactory
     public static IndexRunner Create(RecallConfig config, IIndexRepository store, IgnorePolicy policy, int? workers = null, IOcr? ocr = null, IPauseGate? pause = null)
     {
         ocr ??= CreateOcr(config, workers);
-        IExtractor[] extractors = [new TextExtractor(), new OpenXmlExtractor(), new PdfExtractor(), new ImageExtractor(ocr)];
+        IExtractor[] extractors =
+        [
+            new GroupExtractor(new TextExtractor(), BuiltInRules.Text, policy.GroupOf),
+            new GroupExtractor(new OpenXmlExtractor(), BuiltInRules.Office, policy.GroupOf),
+            new GroupExtractor(new PdfExtractor(), BuiltInRules.Pdf, policy.GroupOf),
+            new GroupExtractor(new ImageExtractor(ocr), BuiltInRules.Images, policy.GroupOf),
+        ];
         return new IndexRunner(store, policy, extractors, ocr, workers, pause);
     }
 }

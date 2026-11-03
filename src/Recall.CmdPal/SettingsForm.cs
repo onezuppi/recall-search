@@ -2,24 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
-using Recall.Core.Ipc;
 
 namespace Recall.CmdPal;
 
-/// <summary>What one list on the settings page shows and which agent calls add and remove its entries.</summary>
-internal sealed record ListSpec(
-    string Title,
-    string Hint,
-    string AddPlaceholder,
-    string AddLabel,
-    Func<IpcSettings, IEnumerable<(string Value, string Label)>> Items,
-    Func<string, Task<SettingsResult>> Add,
-    Func<string, Task<SettingsResult>> Remove);
-
-/// <summary>An Adaptive Card form: the current entries, a field to add one and a list to remove one.</summary>
+/// <summary>An Adaptive Card for one list: help text, the current entries, a field to add one and a selector to remove or move one.</summary>
 internal sealed partial class SettingsForm : FormContent
 {
-    private const string AddAction = "add", RemoveAction = "remove", ValueField = "value", RemoveField = "remove";
+    private const string AddAction = "add", RemoveAction = "remove", RowPrefix = "row:";
+    private const string ValueField = "value", ChoiceField = "choice", SelectedField = "selected";
     private readonly SettingsState _state;
     private readonly ListSpec _spec;
 
@@ -35,60 +25,53 @@ internal sealed partial class SettingsForm : FormContent
     {
         using var doc = JsonDocument.Parse(inputs);
         var root = doc.RootElement;
-        var action = Text(root, "action");
-        var result = action switch
+        var selected = Text(root, SelectedField);
+        var result = Text(root, "action") switch
         {
-            AddAction when Text(root, ValueField).Length > 0 => Run(_spec.Add, Text(root, ValueField)),
-            RemoveAction when Text(root, RemoveField).Length > 0 => Run(_spec.Remove, Text(root, RemoveField)),
+            AddAction when _spec.Add is { } add && Text(root, ValueField).Length > 0 =>
+                Run(() => add.Call(Text(root, ValueField), Text(root, ChoiceField))),
+            RemoveAction when _spec.Remove is { } remove && selected.Length > 0 => Run(() => remove(selected)),
+            var a when a.StartsWith(RowPrefix, StringComparison.Ordinal) && selected.Length > 0 && RowAt(a) is { } row =>
+                Run(() => row.Call(selected)),
             _ => null,
         };
         if (result != null) _state.Apply(result);
         return CommandResult.KeepOpen();
     }
 
-    private static SettingsResult Run(Func<string, Task<SettingsResult>> call, string value) =>
-        Task.Run(() => call(value)).GetAwaiter().GetResult();
+    private RowAction? RowAt(string action) =>
+        int.TryParse(action.AsSpan(RowPrefix.Length), out var i) && _spec.RowActions is { } rows && i >= 0 && i < rows.Count ? rows[i] : null;
+
+    private static SettingsResult Run(Func<Task<SettingsResult>> call) => Task.Run(call).GetAwaiter().GetResult();
 
     private static string Text(JsonElement root, string name) =>
         root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()!.Trim() : "";
 
     private string Build()
     {
-        var items = _state.Current is { } s ? _spec.Items(s).ToList() : [];
-        var body = new JsonArray { Block(_spec.Title, bold: true, size: "Medium") };
-        if (_state.Error != null) body.Add(Block(_state.Error, color: "Attention"));
-        if (items.Count == 0) body.Add(Block(_spec.Hint, color: "Accent"));
-        foreach (var (_, label) in items) body.Add(Block(label));
-        body.Add((JsonNode)new JsonObject { ["type"] = "Input.Text", ["id"] = ValueField, ["placeholder"] = _spec.AddPlaceholder });
-        if (items.Count > 0)
-            body.Add((JsonNode)new JsonObject
-            {
-                ["type"] = "Input.ChoiceSet",
-                ["id"] = RemoveField,
-                ["placeholder"] = "Choose an entry to remove",
-                ["choices"] = new JsonArray(items.Select(i => (JsonNode)new JsonObject { ["title"] = i.Label, ["value"] = i.Value }).ToArray()),
-            });
-        var actions = new JsonArray { Submit(_spec.AddLabel, AddAction) };
-        if (items.Count > 0) actions.Add(Submit("Remove selected", RemoveAction));
-        return new JsonObject
+        var entries = _state.Current is { } s ? _spec.Entries(s).ToList() : [];
+        var body = new JsonArray { Card.Text(_spec.Title, bold: true, size: "Medium") };
+        if (_spec.Help.Length > 0) body.Add(Card.Text(_spec.Help, subtle: true));
+        if (_state.Error != null) body.Add(Card.Text(_state.Error, color: "Attention"));
+        if (entries.Count == 0) body.Add(Card.Text(_spec.Empty, color: "Accent"));
+        foreach (var e in entries) body.Add(Card.Text("- " + e.Label));
+        if (_spec.Add is { } add)
         {
-            ["type"] = "AdaptiveCard",
-            ["$schema"] = "http://adaptivecards.io/schemas/adaptive-card.json",
-            ["version"] = "1.5",
-            ["body"] = body,
-            ["actions"] = actions,
-        }.ToJsonString();
-    }
+            body.Add(Card.Input(ValueField, add.Placeholder));
+            if (add.Choices is { Count: > 0 } choices)
+                body.Add(Card.Choices(ChoiceField, add.ChoiceLabel ?? "", choices.Select(c => (c.Title, c.Value)), choices[0].Value));
+        }
+        var canPick = entries.Count > 0 && (_spec.Remove != null || _spec.RowActions is { Count: > 0 });
+        if (canPick)
+            body.Add(Card.Choices(SelectedField, "Entry to change", entries.Select(e => (e.Label, e.Value)), null));
 
-    private static JsonNode Block(string text, bool bold = false, string? size = null, string? color = null)
-    {
-        var block = new JsonObject { ["type"] = "TextBlock", ["text"] = text, ["wrap"] = true };
-        if (bold) block["weight"] = "Bolder";
-        if (size != null) block["size"] = size;
-        if (color != null) block["color"] = color;
-        return block;
+        var actions = new JsonArray();
+        if (_spec.Add is { } a) actions.Add(Card.Submit(a.Button, AddAction));
+        if (canPick)
+        {
+            for (var i = 0; i < (_spec.RowActions?.Count ?? 0); i++) actions.Add(Card.Submit(_spec.RowActions![i].Button, RowPrefix + i));
+            if (_spec.Remove != null) actions.Add(Card.Submit("Remove selected", RemoveAction));
+        }
+        return Card.Wrap(body, actions);
     }
-
-    private static JsonNode Submit(string title, string action) =>
-        new JsonObject { ["type"] = "Action.Submit", ["title"] = title, ["data"] = new JsonObject { ["action"] = action } };
 }

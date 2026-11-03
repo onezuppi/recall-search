@@ -1,70 +1,10 @@
-using Microsoft.Data.Sqlite;
-using Recall.Agent;
-using Recall.Core.Config;
 using Recall.Core.Ipc;
-using Recall.Core.Search;
+using Recall.Core.Tests.Support;
 
 namespace Recall.Core.Tests;
 
-[Collection("AgentPaths")]
-public class SettingsTests : IDisposable
+public class SettingsTests : SettingsTestBase
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "rs-settings-" + Guid.NewGuid().ToString("N"));
-    private readonly string _pipe = "RecallSearchTest." + Guid.NewGuid().ToString("N");
-    private readonly CancellationTokenSource _cts = new();
-    private readonly string _savedExe = AgentPaths.ExpectedExe;
-    private Task? _run;
-
-    private string Root => Path.Combine(_dir, "watched");
-    private string Db => Path.Combine(_dir, "index.db");
-    private string ConfigFile => Path.Combine(_dir, "config.json");
-
-    public SettingsTests()
-    {
-        Directory.CreateDirectory(Root);
-        AgentPaths.ExpectedExe = Environment.ProcessPath!;
-        var groups = new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase);
-        var config = new RecallConfig([new RootFolder(Root, true)], groups, []);
-        var options = new AgentOptions(Db, _pipe, TimeSpan.FromMilliseconds(200), p => p.EndsWith("system", StringComparison.OrdinalIgnoreCase),
-            ConfigPath: ConfigFile);
-        var host = new AgentHost(config, options);
-        _run = Task.Run(() => host.RunAsync(_cts.Token));
-        Assert.True(host.Watching.Wait(TimeSpan.FromSeconds(10)), "watchers did not start");
-    }
-
-    public void Dispose()
-    {
-        _cts.Cancel();
-        try { _run?.Wait(TimeSpan.FromSeconds(10)); } catch { }
-        AgentPaths.ExpectedExe = _savedExe;
-        SqliteConnection.ClearAllPools();
-        try { Directory.Delete(_dir, true); } catch { }
-    }
-
-    private Task<IpcResponse> Send(string op, string? value = null) =>
-        PipeClient.SendAsync(new IpcRequest(op, Value: value), TimeSpan.FromSeconds(5), default, _pipe);
-
-    private string Folder(string name, string? fileName = null, string? text = null)
-    {
-        var path = Path.Combine(_dir, name);
-        Directory.CreateDirectory(path);
-        if (fileName != null) File.WriteAllText(Path.Combine(path, fileName), text);
-        return path;
-    }
-
-    private bool Found(string word) => SearchEngine.ForDatabase(Db).Search(word, 5).Count > 0;
-
-    private static async Task<bool> WaitFor(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return true;
-            await Task.Delay(100);
-        }
-        return condition();
-    }
-
     [Fact]
     public async Task Settings_lists_roots_and_excludes()
     {
@@ -102,11 +42,11 @@ public class SettingsTests : IDisposable
     [Fact]
     public async Task Missing_system_duplicate_and_nested_roots_are_rejected()
     {
-        Assert.Contains("does not exist", (await Send(IpcOps.AddRoot, Path.Combine(_dir, "nope"))).Error);
-        Assert.Contains("system", (await Send(IpcOps.AddRoot, Folder("system"))).Error);
+        Assert.Contains("does not exist", (await Send(IpcOps.AddRoot, Path.Combine(Dir, "nope"))).Error);
+        Assert.Contains("System", (await Send(IpcOps.AddRoot, Folder("system"))).Error);
         Assert.Contains("already", (await Send(IpcOps.AddRoot, Root.ToUpperInvariant())).Error);
         Assert.Contains("covered", (await Send(IpcOps.AddRoot, Folder(Path.Combine("watched", "inner")))).Error);
-        Assert.Contains("contains", (await Send(IpcOps.AddRoot, _dir)).Error);
+        Assert.Contains("contains", (await Send(IpcOps.AddRoot, Dir)).Error);
         Assert.Single((await Send(IpcOps.Settings)).Settings!.Roots);
     }
 
@@ -125,7 +65,7 @@ public class SettingsTests : IDisposable
     [Fact]
     public async Task Removing_an_unknown_root_fails()
     {
-        Assert.False((await Send(IpcOps.RemoveRoot, Path.Combine(_dir, "other"))).Ok);
+        Assert.False((await Send(IpcOps.RemoveRoot, Path.Combine(Dir, "other"))).Ok);
     }
 
     [Fact]
