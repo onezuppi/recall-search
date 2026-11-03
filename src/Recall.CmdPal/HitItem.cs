@@ -32,6 +32,7 @@ internal static class HitItem
             MoreCommands =
             [
                 new CommandContextItem(new ShowInFolderCommand(hit.Path)),
+                new CommandContextItem(new CopyFileCommand(hit.Path)),
                 new CommandContextItem(new CopyTextCommand(hit.Path) { Name = "Copy path" }),
                 new CommandContextItem(new CopyTextCommand(hit.Context.Length > 0 ? hit.Context : hit.Snippet) { Name = "Copy text" }),
             ],
