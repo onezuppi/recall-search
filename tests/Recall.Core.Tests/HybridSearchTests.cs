@@ -11,14 +11,14 @@ public class HybridSearchTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "rs-hyb-" + Guid.NewGuid().ToString("N"));
     private string Db => Path.Combine(_dir, "index.db");
-    private readonly IndexStore _store;
+    private readonly SqliteIndexRepository _store;
     private readonly FakeEmbedder _fake = new();
     private long _hash;
 
     public HybridSearchTests()
     {
         Directory.CreateDirectory(_dir);
-        _store = IndexStore.Open(Db);
+        _store = SqliteIndexRepository.Open(Db);
         _fake.Aliases["bill"] = "invoice";
         _fake.Aliases["payment"] = "invoice";
     }
@@ -42,7 +42,7 @@ public class HybridSearchTests : IDisposable
         var e = embedder ?? _fake;
         var host = new EmbedderHost(space ?? e.Space, () => e, TimeSpan.Zero);
         await new EmbeddingStage(_store, new EmbedderHost(e.Space, () => e, TimeSpan.Zero)).RunAsync(default);
-        return new SearchEngine(Db, host);
+        return SearchEngine.ForDatabase(Db, host);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class HybridSearchTests : IDisposable
         var old = new FakeEmbedder("fake@1") { Aliases = { ["bill"] = "invoice", ["payment"] = "invoice" } };
         await Engine(old);
         var other = new FakeEmbedder("fake@2");
-        var engine = new SearchEngine(Db, new EmbedderHost("fake@2", () => other, TimeSpan.Zero));
+        var engine = SearchEngine.ForDatabase(Db, new EmbedderHost("fake@2", () => other, TimeSpan.Zero));
         Assert.Empty(engine.Search("invoice", 5));
     }
 
@@ -110,7 +110,7 @@ public class HybridSearchTests : IDisposable
     {
         Add(@"C:\d\a.txt", "needle in a haystack");
         var host = new EmbedderHost("m@1", () => throw new EmbeddingUnavailableException("not downloaded"), TimeSpan.Zero);
-        var hits = new SearchEngine(Db, host).Search("needle", 5);
+        var hits = SearchEngine.ForDatabase(Db, host).Search("needle", 5);
         Assert.Equal([@"C:\d\a.txt"], hits.Select(h => h.Path));
     }
 
@@ -120,7 +120,7 @@ public class HybridSearchTests : IDisposable
         Add(@"C:\d\a.txt", "bill payment");
         var host = new EmbedderHost(_fake.Space, () => _fake, TimeSpan.Zero);
         await new EmbeddingStage(_store, host).RunAsync(default);
-        new SearchEngine(Db, host).Search("invoice", 5);
+        SearchEngine.ForDatabase(Db, host).Search("invoice", 5);
         Assert.False(host.IsLoaded);
     }
 }

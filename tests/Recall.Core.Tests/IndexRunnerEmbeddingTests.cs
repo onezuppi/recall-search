@@ -11,11 +11,11 @@ namespace Recall.Core.Tests;
 
 public class IndexRunnerEmbeddingTests : RunnerTestBase
 {
-    private (IndexStore Store, IndexRunner Runner) Build(EmbedderHost? host)
+    private (SqliteIndexRepository Store, IndexRunner Runner) Build(EmbedderHost? host)
     {
         var cfg = new RecallConfig([], new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase), []);
-        var store = IndexStore.Open(Db);
-        var runner = new IndexRunner(store, new IgnorePolicy(cfg, _ => false), [new TextExtractor()], new FakeOcr(""), embedder: host);
+        var store = SqliteIndexRepository.Open(Db);
+        var runner = new IndexRunner(store, new IgnorePolicy(cfg, _ => false), [new TextExtractor()], new FakeOcr(""), embeddings: store, embedder: host);
         return (store, runner);
     }
 
@@ -107,7 +107,7 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
     [Fact]
     public async Task Cancellation_keeps_finished_pages()
     {
-        using var store = IndexStore.Open(Db);
+        using var store = SqliteIndexRepository.Open(Db);
         for (var i = 0; i < 6; i++)
         {
             var id = store.AddContent((UInt128)(i + 1), "text", [new Segment("", "document number " + i)]);
@@ -125,13 +125,26 @@ public class IndexRunnerEmbeddingTests : RunnerTestBase
     [Fact]
     public async Task Stage_reports_segments_and_chunks()
     {
-        using var store = IndexStore.Open(Db);
+        using var store = SqliteIndexRepository.Open(Db);
         var id = store.AddContent(1, "text", [new Segment("", string.Join(' ', Enumerable.Repeat("слово", 600))), new Segment("p2", "   ")]);
         store.UpsertFile(new FileRecord(@"C:\d.txt", 1, DateTime.UtcNow, "text"), @"C:\d", id, "ok", null);
         var stats = await new EmbeddingStage(store, HostOf(new FakeEmbedder())).RunAsync(default);
         Assert.Equal(1, stats.Segments);
         Assert.InRange(stats.Chunks, 3, EmbedChunker.MaxChunks);
         Assert.Empty(store.PendingSegments("fake@1", 10));
+    }
+
+    [Fact]
+    public async Task Crashing_model_is_reported_and_does_not_fail_the_pass()
+    {
+        Write("a.txt", "needle in a haystack");
+        var host = new EmbedderHost("m@1", () => throw new InvalidOperationException("boom"), TimeSpan.Zero);
+        var (store, runner) = Build(host);
+        using var _ = store;
+        var report = await RunUntilIndexed(runner, 1);
+        Assert.Equal(0, report.Failed);
+        Assert.Contains("boom", report.EmbedError);
+        Assert.Equal(1, Hits("needle"));
     }
 
     [Fact]

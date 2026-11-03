@@ -8,13 +8,13 @@ public class EmbeddingStoreTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "rs-emb-" + Guid.NewGuid().ToString("N"));
     private string Db => Path.Combine(_dir, "index.db");
-    private readonly IndexStore _store;
+    private readonly SqliteIndexRepository _store;
     private long _hash;
 
     public EmbeddingStoreTests()
     {
         Directory.CreateDirectory(_dir);
-        _store = IndexStore.Open(Db);
+        _store = SqliteIndexRepository.Open(Db);
     }
 
     public void Dispose()
@@ -55,7 +55,7 @@ public class EmbeddingStoreTests : IDisposable
         AddFile(@"C:\a.txt", "alpha");
         AddFile(@"C:\b.txt", "beta");
         var p = _store.PendingSegments("m@1", 10);
-        _store.AddEmbeddings("m@1", [(p[0].SegmentId, 0, new float[] { 1, 0 }), (p[1].SegmentId, IndexStore.BlankChunk, [])]);
+        _store.AddEmbeddings("m@1", [new EmbeddingRow(p[0].SegmentId, 0, [1, 0]), EmbeddingRow.Blank(p[1].SegmentId)]);
         Assert.Empty(_store.PendingSegments("m@1", 10));
     }
 
@@ -64,7 +64,7 @@ public class EmbeddingStoreTests : IDisposable
     {
         AddFile(@"C:\a.txt", "alpha");
         var p = _store.PendingSegments("m@1", 10);
-        _store.AddEmbeddings("m@1", [(p[0].SegmentId, 0, new float[] { 1, 0 })]);
+        _store.AddEmbeddings("m@1", [new EmbeddingRow(p[0].SegmentId, 0, [1, 0])]);
         Assert.Single(_store.PendingSegments("m@2", 10));
     }
 
@@ -73,7 +73,7 @@ public class EmbeddingStoreTests : IDisposable
     {
         AddFile(@"C:\a.txt", "alpha");
         var p = _store.PendingSegments("m@1", 10);
-        _store.AddEmbeddings("m@1", [(p[0].SegmentId, 0, new float[] { 1, 0 })]);
+        _store.AddEmbeddings("m@1", [new EmbeddingRow(p[0].SegmentId, 0, [1, 0])]);
         Assert.Equal(1, Count("SELECT COUNT(*) FROM embeddings"));
         _store.RemoveFiles([@"C:\a.txt"]);
         Assert.Equal(0, Count("SELECT COUNT(*) FROM embeddings"));
@@ -85,5 +85,25 @@ public class EmbeddingStoreTests : IDisposable
         AddFile(@"C:\a.txt", "alpha", sameHash: 7);
         AddFile(@"C:\copy\a.txt", "alpha", sameHash: 7);
         Assert.Single(_store.PendingSegments("m@1", 10));
+    }
+
+    [Fact]
+    public void Vectors_of_a_deleted_segment_are_dropped()
+    {
+        AddFile(@"C:.txt", "alpha");
+        _store.AddEmbeddings("m@1", [new EmbeddingRow(9999, 0, [1, 0])]);
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM embeddings"));
+    }
+
+    [Fact]
+    public void DeleteSpace_removes_only_that_space()
+    {
+        AddFile(@"C:.txt", "alpha");
+        var id = _store.PendingSegments("x", 1)[0].SegmentId;
+        _store.AddEmbeddings("m@1", [new EmbeddingRow(id, 0, [1, 0])]);
+        _store.AddEmbeddings("m@2", [new EmbeddingRow(id, 0, [0, 1])]);
+        _store.DeleteSpace("m@1");
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM embeddings WHERE space = 'm@2'"));
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM embeddings WHERE space = 'm@1'"));
     }
 }

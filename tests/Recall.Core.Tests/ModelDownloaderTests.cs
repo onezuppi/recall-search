@@ -21,12 +21,14 @@ public class ModelDownloaderTests : IDisposable
     private sealed class Handler(byte[] body, bool honorRange = true) : HttpMessageHandler
     {
         public int Calls;
+        public bool Answer416 { get; init; }
         public List<string?> Ranges { get; } = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Calls++;
             var from = request.Headers.Range?.Ranges.First().From;
             Ranges.Add(from?.ToString());
+            if (from != null && Answer416) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable));
             if (from is { } f && honorRange)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent(body[(int)f..]) });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) });
@@ -65,6 +67,16 @@ public class ModelDownloaderTests : IDisposable
         var handler = new Handler(_payload);
         await new ModelDownloader(new HttpClient(handler)).EnsureAsync(spec, _root, null, default);
         Assert.Equal("4096", handler.Ranges[0]);
+        Assert.Equal(_payload, await File.ReadAllBytesAsync(Path.Combine(DirOf(spec), "model.onnx")));
+    }
+
+    [Fact]
+    public async Task Complete_part_file_is_refetched_after_416()
+    {
+        var spec = Spec();
+        Directory.CreateDirectory(DirOf(spec));
+        await File.WriteAllBytesAsync(Path.Combine(DirOf(spec), "model.onnx.part"), new byte[_payload.Length + 5]);
+        await new ModelDownloader(new HttpClient(new Handler(_payload) { Answer416 = true })).EnsureAsync(spec, _root, null, default);
         Assert.Equal(_payload, await File.ReadAllBytesAsync(Path.Combine(DirOf(spec), "model.onnx")));
     }
 
