@@ -6,17 +6,24 @@ namespace Recall.Core.Ipc;
 
 // This file and PipeClient.cs are linked into the Command Palette extension: keep them free of other Recall.Core types.
 
-public sealed record IpcRequest(string Op, string? Query = null, int Limit = 48);
+/// <param name="Value">Folder path or exclude pattern for the settings operations.</param>
+public sealed record IpcRequest(string Op, string? Query = null, int Limit = 48, string? Value = null);
 
 public sealed record IpcHit(string Path, string Group, string Locator, string Snippet, DateTime Modified, long Size, string Context = "");
 
 public sealed record IpcStatus(long FilesIndexed, long FilesPending, long FilesFailed, DateTime? LastRunUtc);
 
-public sealed record IpcResponse(bool Ok, string? Error = null, IpcHit[]? Hits = null, IpcStatus? Status = null);
+public sealed record IpcRoot(string Path, bool Watched);
+
+public sealed record IpcSettings(IpcRoot[] Roots, string[] Excludes);
+
+public sealed record IpcResponse(bool Ok, string? Error = null, IpcHit[]? Hits = null, IpcStatus? Status = null, IpcSettings? Settings = null);
 
 public static class IpcOps
 {
     public const string Search = "search", Status = "status", Ping = "ping";
+    public const string Settings = "settings", AddRoot = "add-root", RemoveRoot = "remove-root";
+    public const string AddExclude = "add-exclude", RemoveExclude = "remove-exclude";
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

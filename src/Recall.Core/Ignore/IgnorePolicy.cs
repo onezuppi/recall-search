@@ -13,7 +13,7 @@ public class IgnorePolicy
 
     private readonly RecallConfig _config;
     private readonly Func<string, bool> _isSystemPath;
-    private readonly GitIgnoreMatcher _global;
+    private volatile GitIgnoreMatcher _global;
 
     public IgnorePolicy(RecallConfig config, Func<string, bool>? isSystemPath = null)
     {
@@ -21,6 +21,9 @@ public class IgnorePolicy
         _isSystemPath = isSystemPath ?? BuiltInRules.IsSystemPath;
         _global = GitIgnoreMatcher.Parse("", config.GlobalIgnorePatterns);
     }
+
+    /// <summary>Replaces the global exclude patterns; scans and watcher checks started afterwards use the new set.</summary>
+    public void SetGlobalPatterns(IEnumerable<string> patterns) => _global = GitIgnoreMatcher.Parse("", patterns);
 
     /// <summary>Virtual so tests can count which directories the scanner asks about.</summary>
     public virtual DirectoryDecision EnterDirectory(string fullPath, FileAttributes attrs, IReadOnlyList<GitIgnoreMatcher> scope)
