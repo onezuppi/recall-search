@@ -10,16 +10,29 @@ namespace Recall.Core.Activity;
 /// <param name="processNames">Process names with or without ".exe", compared case-insensitively.</param>
 /// <param name="queryState">Overrides the shell query (tests). Returns a QUERY_USER_NOTIFICATION_STATE value or null when unknown.</param>
 /// <param name="runningProcesses">Overrides process enumeration (tests).</param>
+/// <param name="foregroundProcess">Overrides the name of the process that owns the active window (tests).</param>
 public sealed class WindowsActivityMonitor(
-    IEnumerable<string> processNames, Func<int?>? queryState = null, Func<IEnumerable<string>>? runningProcesses = null) : IActivityMonitor
+    IEnumerable<string> processNames, Func<int?>? queryState = null, Func<IEnumerable<string>>? runningProcesses = null,
+    Func<string?>? foregroundProcess = null) : IActivityMonitor
 {
     private readonly HashSet<string> _names = new(processNames.Select(Normalize), StringComparer.OrdinalIgnoreCase);
     private readonly Func<int?> _queryState = queryState ?? QueryShell;
     private readonly Func<IEnumerable<string>> _running = runningProcesses ?? RunningProcessNames;
+    private readonly Func<string?> _foreground = foregroundProcess ?? ForegroundProcessName;
+
+    /// <summary>
+    /// Windows reports "busy" (state 2) while these are the active window although nothing is full screen: measured with Yandex Browser
+    /// (process "browser") in a normal window, which paused indexing for minutes at a time. They are never games or presentations.
+    /// </summary>
+    private static readonly HashSet<string> BusyFalsePositives = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "browser", "chrome", "msedge", "firefox", "opera", "brave", "vivaldi",
+    };
 
     public string? BusyReason()
     {
-        var reason = Classify(_queryState());
+        var state = _queryState();
+        var reason = state == QunsBusy && _foreground() is { } active && BusyFalsePositives.Contains(Normalize(active)) ? null : Classify(state);
         if (reason != null) return reason;
         if (_names.Count == 0) return null;
         var hit = _running().Select(Normalize).FirstOrDefault(_names.Contains);
@@ -35,6 +48,8 @@ public sealed class WindowsActivityMonitor(
         7 => "full screen store app",    // QUNS_APP
         _ => null,                       // not present, accepts notifications, quiet time, unknown
     };
+
+    private const int QunsBusy = 2;
 
     private static string Normalize(string name) =>
         name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
@@ -52,6 +67,20 @@ public sealed class WindowsActivityMonitor(
             yield return name;
         }
     }
+
+    private static string? ForegroundProcessName()
+    {
+        var window = GetForegroundWindow();
+        if (window == IntPtr.Zero || GetWindowThreadProcessId(window, out var pid) == 0) return null;
+        try { using var p = Process.GetProcessById((int)pid); return p.ProcessName; }
+        catch (Exception) { return null; }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 
     [DllImport("shell32.dll")]
     private static extern int SHQueryUserNotificationState(out int state);

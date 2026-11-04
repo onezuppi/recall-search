@@ -37,6 +37,24 @@ public class WindowsActivityMonitorTests
         Assert.Null(monitor.BusyReason());
     }
 
+    [Theory]
+    [InlineData("browser", null)]
+    [InlineData("Chrome", null)]
+    [InlineData("msedge.exe", null)]
+    [InlineData("SomeGame", "full screen app")]
+    public void Busy_state_with_a_browser_in_front_is_not_a_full_screen_app(string foreground, string? expected)
+    {
+        var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => foreground);
+        Assert.Equal(expected, monitor.BusyReason());
+    }
+
+    [Fact]
+    public void A_browser_in_front_does_not_hide_a_real_game_or_presentation()
+    {
+        Assert.Equal("full screen game", new WindowsActivityMonitor([], () => 3, foregroundProcess: () => "browser").BusyReason());
+        Assert.Equal("presentation mode", new WindowsActivityMonitor([], () => 4, foregroundProcess: () => "chrome").BusyReason());
+    }
+
     [Fact]
     public void Real_shell_query_does_not_throw() => _ = new WindowsActivityMonitor([]).BusyReason();
 }
