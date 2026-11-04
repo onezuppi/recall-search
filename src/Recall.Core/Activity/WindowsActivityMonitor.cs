@@ -32,8 +32,10 @@ public sealed class WindowsActivityMonitor(
     public string? BusyReason()
     {
         var state = _queryState();
-        var reason = state == QunsBusy && _foreground() is { } active && BusyFalsePositives.Contains(Normalize(active)) ? null : Classify(state);
-        if (reason != null) return reason;
+        var active = state is null or 5 ? null : _foreground();
+        var reason = state == QunsBusy && active != null && BusyFalsePositives.Contains(Normalize(active)) ? null : Classify(state);
+        // The name of the window owner goes into the log: it tells which app Windows treats as full screen.
+        if (reason != null) return active == null ? reason : $"{reason}, active window: {active}";
         if (_names.Count == 0) return null;
         var hit = _running().Select(Normalize).FirstOrDefault(_names.Contains);
         return hit == null ? null : $"process {hit}";
