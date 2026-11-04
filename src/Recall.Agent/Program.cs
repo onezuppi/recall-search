@@ -44,6 +44,14 @@ if (cli.EmbeddingModel != null) config = config with { EmbeddingModel = cli.Embe
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 
+// The agent and the NPU server it starts (they inherit the class) yield to the user's programs and to games instead of pausing for every
+// full screen window. When the processor is free this costs nothing. Side runs (benchmarks, --once) keep the normal priority.
+if (cli.DbPath == null && !cli.Once)
+{
+    try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal; }
+    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { log.Info("cannot lower the priority: " + e.Message); }
+}
+
 PauseOptions? pause = config.PauseWhenBusy ? new PauseOptions(new WindowsActivityMonitor(config.PauseProcesses)) : null;
 
 try
