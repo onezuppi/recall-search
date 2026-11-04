@@ -18,7 +18,8 @@ namespace Recall.Core.Index;
 /// <param name="scanThreads">Directories listed at the same time during a scan; null selects <see cref="DefaultScanThreads"/>.</param>
 public sealed class IndexRunner(
     IIndexRepository store, IgnorePolicy policy, IReadOnlyList<IExtractor> extractors, IOcr ocr, int? workers = null, IPauseGate? pause = null,
-    TimeSpan? fullScanInterval = null, int? scanThreads = null, IEmbeddingRepository? embeddings = null, EmbedderHost? embedder = null)
+    TimeSpan? fullScanInterval = null, int? scanThreads = null, IEmbeddingRepository? embeddings = null, EmbedderHost? embedder = null,
+    bool embedInline = true)
 {
     private readonly int _workers = Math.Max(1, workers ?? DefaultWorkers);
     private readonly RootScanPlanner planner = new(store, policy, fullScanInterval, scanThreads ?? DefaultScanThreads);
@@ -64,6 +65,18 @@ public sealed class IndexRunner(
             walk.Commit(c.RetryDirectories.Keys);
             c.RetryDirectories.Clear();
         }
+        if (embedInline) await EmbedAsync(c, ct);
+        return Report(c, total.Elapsed);
+    }
+
+    /// <summary>
+    /// Makes the vectors of everything stored that has none. With <c>embedInline: false</c> the passes leave this to the caller, which can then run it
+    /// beside them: a backlog of hours must not hold up new files.
+    /// </summary>
+    public async Task<RunReport> EmbedPendingAsync(CancellationToken ct)
+    {
+        var total = Stopwatch.StartNew();
+        var c = new RunCounters();
         await EmbedAsync(c, ct);
         return Report(c, total.Elapsed);
     }
@@ -90,7 +103,7 @@ public sealed class IndexRunner(
         if (gone.Count > 0) { store.RemoveFiles(gone); c.Removed += gone.Count; }
         c.Added += work.Count;
         await ProcessAsync(work, rootPath, c, null, ct);
-        await EmbedAsync(c, ct);
+        if (embedInline) await EmbedAsync(c, ct);
         return Report(c, total.Elapsed);
     }
 

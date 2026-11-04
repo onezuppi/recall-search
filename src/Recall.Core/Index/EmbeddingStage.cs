@@ -25,18 +25,21 @@ public sealed class EmbeddingStage(
         long segments = 0, chunks = 0, images = 0;
         try
         {
-            while (await NextAsync(ct, () => repository.PendingSegments(host.Space, pageSize), (e, page) => EmbedPage(e, page, ct),
-                       rows => repository.AddEmbeddings(host.Space, rows)) is { } done)
+            while (true)
             {
-                segments += done.Count;
-                chunks += done.Rows.Count(r => r.Chunk != EmbeddingRow.BlankChunk);
-            }
-            if (host.ImageSpace is { } imageSpace)
-                while (await NextAsync(ct, () => repository.PendingImages(imageSpace, ImagePageSize), EmbedImages,
-                           rows => repository.AddEmbeddings(imageSpace, rows)) is { } done)
+                // Text first, and again after every picture page: text found while a long picture backlog runs does not wait for it.
+                if (await NextAsync(ct, () => repository.PendingSegments(host.Space, pageSize), (e, page) => EmbedPage(e, page, ct),
+                        rows => repository.AddEmbeddings(host.Space, rows)) is { } text)
                 {
-                    images += done.Rows.Count(r => r.Chunk != EmbeddingRow.BlankChunk);
+                    segments += text.Count;
+                    chunks += text.Rows.Count(r => r.Chunk != EmbeddingRow.BlankChunk);
+                    continue;
                 }
+                if (host.ImageSpace is not { } imageSpace) break;
+                if (await NextAsync(ct, () => repository.PendingImages(imageSpace, ImagePageSize), EmbedImages,
+                        rows => repository.AddEmbeddings(imageSpace, rows)) is not { } picture) break;
+                images += picture.Rows.Count(r => r.Chunk != EmbeddingRow.BlankChunk);
+            }
         }
         finally
         {

@@ -59,7 +59,8 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         var modelsRoot = options.ModelsRoot ?? EmbeddingSetup.ModelsRoot;
         var embedder = _embedder = EmbedderHost.Create(config, modelsRoot);
         using var gate = StartPauseGate(ocr);
-        _runner = IndexRunnerFactory.Create(config, store, _policy, ocr: ocr, pause: gate, embedder: embedder);
+        _runner = IndexRunnerFactory.Create(config, store, _policy, ocr: ocr, pause: gate, embedder: embedder, embedInline: false);
+        _shutdown = ct;
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log, () => gate?.IsPaused ?? false);
         if (gate != null) gate.Changed += (paused, _) => { if (!paused) queue.Resume(); };
 
@@ -78,6 +79,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         var schedule = SlowScanLoopAsync(ct);
         await pipe;
         try { await schedule; } catch (OperationCanceledException) { }
+        try { await (_embedLoop ?? Task.CompletedTask); } catch (OperationCanceledException) { }
         lock (_watchers) foreach (var w in _watchers.Values) w.Dispose();
     }
 
@@ -173,6 +175,38 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
 
     private void MarkSlowScanDone(DateTime now) => _store!.SetMeta(SlowScanKey, now.Ticks.ToString());
 
+    private CancellationToken _shutdown;
+    private readonly object _embedGate = new();
+    private Task? _embedLoop;
+    private bool _embedAgain;
+
+    /// <summary>
+    /// Fills the vectors in the background, outside the indexing gate: a backlog of hours (a first run on the NPU) must not hold up the
+    /// OCR and storing of new files. Requests that arrive while it runs make it look once more.
+    /// </summary>
+    private void RequestEmbedding()
+    {
+        lock (_embedGate)
+        {
+            if (_embedLoop is { IsCompleted: false }) { _embedAgain = true; return; }
+            _embedLoop = Task.Run(async () =>
+            {
+                do
+                {
+                    lock (_embedGate) _embedAgain = false;
+                    try
+                    {
+                        var r = await _runner!.EmbedPendingAsync(_shutdown);
+                        if (r.EmbeddedChunks > 0 || r.EmbedError != null) _log.Info($"vectors: {r.EmbeddedChunks} chunk(s){(r.EmbedError != null ? ", error: " + r.EmbedError : "")}");
+                    }
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception e) { _log.Info($"vectors failed: {e.GetType().Name}: {e.Message}"); }
+                    lock (_embedGate) if (!_embedAgain) return;
+                } while (true);
+            });
+        }
+    }
+
     private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct, RootHints? hints = null)
     {
         await _indexGate.WaitAsync(ct);
@@ -186,6 +220,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
             _log.Info($"pass done: {LastReport}");
         }
         finally { _indexGate.Release(); }
+        RequestEmbedding();
     }
 
     private async Task FlushAsync(string rootPath, IReadOnlyList<string> paths)
@@ -197,6 +232,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         await _indexGate.WaitAsync();
         try { await _runner!.IndexFilesAsync(root, allowed, CancellationToken.None); }
         finally { _indexGate.Release(); }
+        RequestEmbedding();
     }
 
     /// <summary>Deleted files pass through (removal is harmless); existing files must satisfy the full ignore policy.</summary>
