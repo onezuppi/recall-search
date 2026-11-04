@@ -19,6 +19,7 @@ public sealed class OpenXmlExtractor : IExtractor
     {
         try
         {
+            ExtractLimits.CheckArchive(path);
             try { return Task.FromResult(Read(OpenShared(path), path, ct)); }
             catch (Exception e) when (OfficeXmlRepair.IsInvalidXmlSpace(e))
             {
@@ -38,33 +39,45 @@ public sealed class OpenXmlExtractor : IExtractor
         using (source)
         {
             var segments = new List<Segment>();
-            var images = new List<EmbeddedImage>();
+            var images = new ImageBudget();
             switch (Path.GetExtension(path).ToLowerInvariant())
             {
                 case ".docx": Docx(source, segments, images); break;
                 case ".pptx": Pptx(source, segments, images, ct); break;
                 default: Xlsx(source, segments, images, ct); break;
             }
-            return new ExtractResult(segments, images);
+            return new ExtractResult(segments, images.Images);
         }
     }
 
-    private static void AddImages(IEnumerable<ImagePart> parts, string prefix, List<EmbeddedImage> images)
+    private static void AddImages(IEnumerable<ImagePart> parts, string prefix, ImageBudget images)
     {
         var k = 0;
         foreach (var part in parts)
         {
             using var s = part.GetStream();
-            using var ms = new MemoryStream();
-            s.CopyTo(ms);
-            var bytes = ms.ToArray();
-            if (ImageFilter.IsTiny(bytes)) continue;
+            var bytes = ReadCapped(s);
+            if (bytes == null || ImageFilter.IsTiny(bytes)) continue;
             k++;
-            images.Add(new EmbeddedImage($"{prefix}{k}", bytes));
+            images.TryAdd($"{prefix}{k}", bytes);
         }
     }
 
-    private static void Docx(Stream source, List<Segment> segments, List<EmbeddedImage> images)
+    /// <summary>Reads a part into memory, or returns null when it is larger than one image may be (a decompression bomb).</summary>
+    private static byte[]? ReadCapped(Stream s)
+    {
+        using var ms = new MemoryStream();
+        var buf = new byte[81920];
+        int n;
+        while ((n = s.Read(buf, 0, buf.Length)) > 0)
+        {
+            if (ms.Length + n > ExtractLimits.MaxImageBytes) return null;
+            ms.Write(buf, 0, n);
+        }
+        return ms.ToArray();
+    }
+
+    private static void Docx(Stream source, List<Segment> segments, ImageBudget images)
     {
         using var doc = WordprocessingDocument.Open(source, false);
         var main = doc.MainDocumentPart ?? throw new ExtractException("no main document part");
@@ -73,7 +86,7 @@ public sealed class OpenXmlExtractor : IExtractor
         AddImages(main.ImageParts, "image:", images);
     }
 
-    private static void Pptx(Stream source, List<Segment> segments, List<EmbeddedImage> images, CancellationToken ct)
+    private static void Pptx(Stream source, List<Segment> segments, ImageBudget images, CancellationToken ct)
     {
         using var doc = PresentationDocument.Open(source, false);
         var pres = doc.PresentationPart ?? throw new ExtractException("no presentation part");
@@ -90,7 +103,7 @@ public sealed class OpenXmlExtractor : IExtractor
         }
     }
 
-    private static void Xlsx(Stream source, List<Segment> segments, List<EmbeddedImage> images, CancellationToken ct)
+    private static void Xlsx(Stream source, List<Segment> segments, ImageBudget images, CancellationToken ct)
     {
         using var doc = SpreadsheetDocument.Open(source, false);
         var wb = doc.WorkbookPart ?? throw new ExtractException("no workbook part");

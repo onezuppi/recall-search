@@ -16,3 +16,7 @@ The author replies as soon as possible. The project does not promise fix times.
 ## Threat model
 
 The project is meant for one user on a personal computer. The index holds the text of your documents and is not encrypted. File system permissions of your profile protect it. An attacker with access to your profile also has access to the index.
+
+## Known limits of the optional change-journal service
+
+The service is not installed by default. It runs as SYSTEM. For a root that every user can read, for example `C:\`, it returns the names of changed files without checking the rights of the caller. Any local user can also make it fail. Both limits are accepted for a personal single-user computer. Do not install the service on a shared computer.

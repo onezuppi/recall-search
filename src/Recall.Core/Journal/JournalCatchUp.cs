@@ -35,7 +35,7 @@ public sealed class JournalCatchUp(IDirectoryRepository store, IChangeJournal jo
         var known = (extensions?.Invoke() ?? BuiltInRules.KnownExtensions).ToList();
         foreach (var root in roots)
         {
-            var path = Path.GetFullPath(root.Path).TrimEnd('\\');
+            var path = Recall.Core.Scan.RootPath.Normalize(root.Path);
             if (path.Length < 2 || path[1] != ':' || !Directory.Exists(path)) continue;
             var (id, usn) = ReadCursor(path);
             var response = await journal.QueryAsync(new JournalRequest(path[..2].ToUpperInvariant(), id, usn, [path], known), ct);

@@ -333,7 +333,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         try
         {
             if (_settings!.IsConfigured(root.Path)) return; // added back while this waited
-            var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
+            var rootPath = Recall.Core.Scan.RootPath.Normalize(root.Path);
             var paths = _store!.Snapshot(rootPath).Keys.ToList();
             _store.RemoveFiles(paths);
             _log.Info($"removed {paths.Count} file(s) of {rootPath} from the index");

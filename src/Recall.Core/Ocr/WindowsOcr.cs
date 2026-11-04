@@ -54,7 +54,7 @@ public sealed class WindowsOcr : IOcr
 
     public async Task<string> RecognizeAsync(byte[] image, CancellationToken ct)
     {
-        if (_pools.Count == 0) throw new ExtractException("no OCR language is installed");
+        if (_pools.Count == 0) throw new ExtractException("no OCR language is installed", transient: true);
         SoftwareBitmap bitmap;
         try { bitmap = await DecodeAsync(image, ct); }
         catch (OperationCanceledException) { throw; }

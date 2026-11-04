@@ -13,10 +13,13 @@ public interface IExtractor
     Task<ExtractResult> ExtractAsync(string path, CancellationToken ct);
 }
 
-/// <summary>The file cannot be read as its type. <see cref="Transient"/> marks I/O failures (a locked file) that may succeed later.</summary>
-public sealed class ExtractException(string reason, Exception? inner = null) : Exception(reason, inner)
+/// <summary>
+/// The file cannot be read as its type. <see cref="Transient"/> marks failures that may succeed later: I/O errors (a locked file)
+/// and a missing machine capability (no OCR language yet), which the caller flags with <c>transient: true</c>.
+/// </summary>
+public sealed class ExtractException(string reason, Exception? inner = null, bool transient = false) : Exception(reason, inner)
 {
-    public bool Transient => InnerException is IOException && InnerException is not FileNotFoundException;
+    public bool Transient => transient || (InnerException is IOException && InnerException is not FileNotFoundException);
 }
 
 internal static class ImageFilter

@@ -80,7 +80,7 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
     public IEnumerable<FileRecord> Scan(RootFolder root, CancellationToken ct, DirectoryMemory? memory = null, IReadOnlyCollection<string>? skip = null)
     {
         _skip = skip is { Count: > 0 } ? new HashSet<string>(skip.Select(s => s.TrimEnd('\\', '/')), StringComparer.OrdinalIgnoreCase) : null;
-        var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
+        var rootPath = RootPath.Normalize(root.Path);
         Stats.Roots.Add(rootPath);
         Stats.DirectoriesEntered++;
 

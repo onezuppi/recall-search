@@ -42,11 +42,11 @@ public sealed class IndexRunner(
         {
             await WaitIfPausedAsync(ct);
             var sw = Stopwatch.StartNew();
-            var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
+            var rootPath = RootPath.Normalize(root.Path);
             // An unplugged drive or an unavailable cloud folder looks like "everything was deleted": keep the index as it is.
             if (!Directory.Exists(rootPath)) { c.MissingRoots++; continue; }
             var walk = planner.Begin(rootPath, mode, hints);
-            var nested = RootNesting.Inside(rootPath, (knownRoots ?? roots.Select(r => r.Path).ToList()).Select(p => Path.GetFullPath(p).TrimEnd('\\')));
+            var nested = RootNesting.Inside(rootPath, (knownRoots ?? roots.Select(r => r.Path).ToList()).Select(RootPath.Normalize));
             var scanned = await Task.Run(() => walk.Scan(root, ct, nested), ct);
             var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath), walk.UnchangedDirectories, walk.FailedDirectories);
             // Files that now belong to a nested root are not deleted here: that root's own pass takes them over.
@@ -86,7 +86,7 @@ public sealed class IndexRunner(
     {
         var total = Stopwatch.StartNew();
         var c = new RunCounters();
-        var rootPath = Path.GetFullPath(root.Path).TrimEnd('\\');
+        var rootPath = RootPath.Normalize(root.Path);
         var work = new List<FileRecord>();
         var gone = new List<string>();
         foreach (var p in paths.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -100,11 +100,30 @@ public sealed class IndexRunner(
             if (state is { } s && s.Size == rec.Size && s.Mtime == rec.LastWriteUtc.Ticks) continue;
             work.Add(rec);
         }
-        if (gone.Count > 0) { store.RemoveFiles(gone); c.Removed += gone.Count; }
+        if (gone.Count > 0)
+        {
+            // The watcher reports a deleted or moved folder as one path, without the files in it.
+            gone.AddRange(FilesBelow(store.Snapshot(rootPath).Keys, gone));
+            store.RemoveFiles(gone);
+            c.Removed += gone.Count;
+        }
         c.Added += work.Count;
         await ProcessAsync(work, rootPath, c, null, ct);
         if (embedInline) await EmbedAsync(c, ct);
         return Report(c, total.Elapsed);
+    }
+
+    /// <summary>Stored paths that lie below any of the <paramref name="folders"/>. Each path is checked against its own ancestors only.</summary>
+    private static List<string> FilesBelow(IEnumerable<string> stored, IEnumerable<string> folders)
+    {
+        var set = new HashSet<string>(folders, StringComparer.OrdinalIgnoreCase);
+        var below = new List<string>();
+        foreach (var path in stored)
+        {
+            for (var d = Path.GetDirectoryName(path); d != null; d = Path.GetDirectoryName(d))
+                if (set.Contains(d)) { below.Add(path); break; }
+        }
+        return below;
     }
 
     private Task WaitIfPausedAsync(CancellationToken ct)
@@ -137,19 +156,30 @@ public sealed class IndexRunner(
         if (work.Count == 0) return;
         var channel = Channel.CreateBounded<FileRecord>(64);
         long done = 0;
+        // A worker that fails stops the others and the producer: with every worker gone nobody would read the bounded queue and the pass would hang.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var workers = Enumerable.Range(0, _workers).Select(_ => Task.Run(async () =>
         {
-            await foreach (var f in channel.Reader.ReadAllAsync(ct))
+            try
             {
-                await WaitIfPausedAsync(ct);
-                await ProcessFileAsync(f, root, c, ct);
-                progress?.Report(new RunProgress(root, Interlocked.Increment(ref done), work.Count));
+                await foreach (var f in channel.Reader.ReadAllAsync(stop.Token))
+                {
+                    await WaitIfPausedAsync(stop.Token);
+                    await ProcessFileAsync(f, root, c, stop.Token);
+                    progress?.Report(new RunProgress(root, Interlocked.Increment(ref done), work.Count));
+                }
             }
-        }, ct)).ToList();
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                stop.Cancel();
+                throw;
+            }
+        }, stop.Token)).ToList();
         try
         {
-            foreach (var f in work) await channel.Writer.WriteAsync(f, ct);
+            foreach (var f in work) await channel.Writer.WriteAsync(f, stop.Token);
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { /* a worker failed; its error is thrown below */ }
         finally { channel.Writer.Complete(); }
         await Task.WhenAll(workers);
     }

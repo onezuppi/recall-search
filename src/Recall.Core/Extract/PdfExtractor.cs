@@ -14,7 +14,7 @@ public sealed class PdfExtractor : IExtractor
         try
         {
             var segments = new List<Segment>();
-            var images = new List<EmbeddedImage>();
+            var images = new ImageBudget();
             using var pdf = PdfDocument.Open(path);
             foreach (var page in pdf.GetPages())
             {
@@ -23,13 +23,14 @@ public sealed class PdfExtractor : IExtractor
                 var k = 0;
                 foreach (var img in page.GetImages())
                 {
+                    if (images.IsFull) break;
                     byte[]? bytes = img.TryGetPng(out var png) ? png : img.RawBytes.ToArray();
                     if (bytes == null || ImageFilter.IsTiny(bytes)) continue;
                     k++;
-                    images.Add(new EmbeddedImage($"image:page:{page.Number}:{k}", bytes));
+                    images.TryAdd($"image:page:{page.Number}:{k}", bytes);
                 }
             }
-            return Task.FromResult(new ExtractResult(segments, images));
+            return Task.FromResult(new ExtractResult(segments, images.Images));
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception e) { throw new ExtractException("cannot read PDF: " + e.Message, e); }

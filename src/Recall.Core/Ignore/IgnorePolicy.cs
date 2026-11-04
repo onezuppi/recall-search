@@ -87,13 +87,13 @@ public class IgnorePolicy
     /// </summary>
     public bool Allows(string rootPath, string filePath, long size, FileAttributes attrs)
     {
-        var root = Path.GetFullPath(rootPath).TrimEnd('\\');
+        var root = Recall.Core.Scan.RootPath.Normalize(rootPath);
         var chain = new Stack<string>();
         for (var d = Path.GetDirectoryName(filePath);
              d != null && d.Length > root.Length && d.StartsWith(root, StringComparison.OrdinalIgnoreCase);
              d = Path.GetDirectoryName(d))
             chain.Push(d);
-        if (!filePath.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!Recall.Core.Scan.RootNesting.IsUnder(filePath, root)) return false;
 
         var scope = ScopeFor(root, []);
         try

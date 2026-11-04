@@ -134,7 +134,7 @@ Without it, the agent skips unchanged folders by the write time of the directory
 .\scripts\install-usn-service.ps1
 ```
 
-The service runs as SYSTEM, reads the NTFS journal and stores nothing. A user gets only paths in folders that user can open anyway. To remove it, pass `-Remove`. Restart the agent after the installation.
+The service runs as SYSTEM, reads the NTFS journal and stores nothing. Its known limits: for a root that every user can read (for example `C:\`) it returns the names of changed files without checking the folder rights of the caller, and any local user can make it fail or stop answering. Install it only on a personal computer with one user, and index roots inside your own profile. Without the service the agent falls back to a normal scan. To remove it, pass `-Remove`. Restart the agent after the installation.
 
 ## Semantic search
 

@@ -4,6 +4,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Recall.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Recall.Journal\Recall.Journal.csproj" />
   </ItemGroup>
   <ItemGroup>
