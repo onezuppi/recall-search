@@ -27,13 +27,15 @@ public sealed class WindowsActivityMonitor(
     private static readonly HashSet<string> BusyFalsePositives = new(StringComparer.OrdinalIgnoreCase)
     {
         "browser", "chrome", "msedge", "firefox", "opera", "brave", "vivaldi",
+        // Windows shell windows: measured "busy" with the desktop, the file manager and the search box in front.
+        "explorer", "SearchHost", "SearchApp", "StartMenuExperienceHost", "ShellExperienceHost", "ApplicationFrameHost",
     };
 
     public string? BusyReason()
     {
         var state = _queryState();
         var active = state is null or 5 ? null : _foreground();
-        var reason = state == QunsBusy && active != null && BusyFalsePositives.Contains(Normalize(active)) ? null : Classify(state);
+        var reason = state is QunsBusy or QunsApp && active != null && BusyFalsePositives.Contains(Normalize(active)) ? null : Classify(state);
         // The name of the window owner goes into the log: it tells which app Windows treats as full screen.
         if (reason != null) return active == null ? reason : $"{reason}, active window: {active}";
         if (_names.Count == 0) return null;
@@ -51,7 +53,7 @@ public sealed class WindowsActivityMonitor(
         _ => null,                       // not present, accepts notifications, quiet time, unknown
     };
 
-    private const int QunsBusy = 2;
+    private const int QunsBusy = 2, QunsApp = 7;
 
     private static string Normalize(string name) =>
         name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;

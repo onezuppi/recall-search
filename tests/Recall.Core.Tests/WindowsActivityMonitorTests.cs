@@ -41,11 +41,20 @@ public class WindowsActivityMonitorTests
     [InlineData("browser", null)]
     [InlineData("Chrome", null)]
     [InlineData("msedge.exe", null)]
+    [InlineData("explorer", null)]
+    [InlineData("SearchHost", null)]
     [InlineData("SomeGame", "full screen app, active window: SomeGame")]
     public void Busy_state_with_a_browser_in_front_is_not_a_full_screen_app(string foreground, string? expected)
     {
         var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => foreground);
         Assert.Equal(expected, monitor.BusyReason());
+    }
+
+    [Fact]
+    public void Store_app_state_with_the_search_box_in_front_is_not_busy()
+    {
+        Assert.Null(new WindowsActivityMonitor([], () => 7, foregroundProcess: () => "SearchHost").BusyReason());
+        Assert.StartsWith("full screen store app", new WindowsActivityMonitor([], () => 7, foregroundProcess: () => "SomeGame").BusyReason());
     }
 
     [Fact]
