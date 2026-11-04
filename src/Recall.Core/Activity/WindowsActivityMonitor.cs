@@ -13,8 +13,9 @@ namespace Recall.Core.Activity;
 /// <param name="foregroundProcess">Overrides the name of the process that owns the active window (tests).</param>
 public sealed class WindowsActivityMonitor(
     IEnumerable<string> processNames, Func<int?>? queryState = null, Func<IEnumerable<string>>? runningProcesses = null,
-    Func<string?>? foregroundProcess = null) : IActivityMonitor
+    Func<string?>? foregroundProcess = null, Func<bool?>? foregroundCoversMonitor = null) : IActivityMonitor
 {
+    private readonly Func<bool?> _coversMonitor = foregroundCoversMonitor ?? ForegroundCoversMonitor;
     private readonly HashSet<string> _names = new(processNames.Select(Normalize), StringComparer.OrdinalIgnoreCase);
     private readonly Func<int?> _queryState = queryState ?? QueryShell;
     private readonly Func<IEnumerable<string>> _running = runningProcesses ?? RunningProcessNames;
@@ -35,7 +36,11 @@ public sealed class WindowsActivityMonitor(
     {
         var state = _queryState();
         var active = state is null or 5 ? null : _foreground();
-        var reason = state is QunsBusy or QunsApp && active != null && BusyFalsePositives.Contains(Normalize(active)) ? null : Classify(state);
+        // "Busy" is also reported for an ordinary maximized window (measured: browser, explorer, ChatGPT). A real full screen
+        // window covers the whole monitor, taskbar included; one that does not is not a game or a video in full screen.
+        var falseBusy = (state is QunsBusy or QunsApp && active != null && BusyFalsePositives.Contains(Normalize(active)))
+            || (state == QunsBusy && _coversMonitor() == false);
+        var reason = falseBusy ? null : Classify(state);
         // The name of the window owner goes into the log: it tells which app Windows treats as full screen.
         if (reason != null) return active == null ? reason : $"{reason}, active window: {active}";
         if (_names.Count == 0) return null;
@@ -79,6 +84,35 @@ public sealed class WindowsActivityMonitor(
         try { using var p = Process.GetProcessById((int)pid); return p.ProcessName; }
         catch (Exception) { return null; }
     }
+
+    /// <summary>Whether the active window fills its whole monitor. Null when it cannot be told.</summary>
+    private static bool? ForegroundCoversMonitor()
+    {
+        var window = GetForegroundWindow();
+        if (window == IntPtr.Zero || !GetWindowRect(window, out var w)) return null;
+        var monitor = MonitorFromWindow(window, MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info)) return null;
+        var m = info.Monitor;
+        return w.Left <= m.Left && w.Top <= m.Top && w.Right >= m.Right && w.Bottom >= m.Bottom;
+    }
+
+    private const int MonitorDefaultToNearest = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo { public int Size; public Rect Monitor, Work; public int Flags; }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr window, out Rect rect);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr window, int flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
