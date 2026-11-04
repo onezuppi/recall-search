@@ -50,6 +50,30 @@ public sealed partial class SqliteIndexRepository : IEmbeddingRepository
         }
     }
 
+    public EmbeddingBacklog Backlog(string space, string? imageSpace)
+    {
+        lock (_gate)
+        {
+            long Count(string where, string? sp)
+            {
+                using var cmd = _db.CreateCommand();
+                cmd.CommandText = $"""
+                    SELECT COUNT(*) FROM segments s {(where.Length > 0 ? "JOIN contents c ON c.id = s.content_id" : "")}
+                    WHERE {where} EXISTS (SELECT 1 FROM files f WHERE f.content_id = s.content_id AND f.status = '{FileStatus.Ok}')
+                    {(sp == null ? "" : "AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.segment_id = s.id AND e.space = $space)")}
+                    """;
+                if (sp != null) cmd.Parameters.AddWithValue("$space", sp);
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+
+            const string Pictures = "c.grp = 'images' AND";
+            var images = imageSpace != null;
+            return new EmbeddingBacklog(
+                Count("", null), Count("", space),
+                images ? Count(Pictures, null) : 0, images ? Count(Pictures, imageSpace) : 0);
+        }
+    }
+
     public void AddEmbeddings(string space, IReadOnlyList<EmbeddingRow> rows)
     {
         lock (_gate)

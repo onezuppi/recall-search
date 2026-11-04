@@ -20,8 +20,19 @@ public sealed record IpcFileType(string Extension, string Group);
 
 /// <param name="MinSimilarity">Cosine similarity under which a semantic hit is hidden. Null when semantic search is off.</param>
 /// <param name="SlowScanTime">Local "HH:mm" of the daily slow-folder scan; empty when the scheduled scan is off.</param>
+/// <param name="Device">Where semantic search runs: off, cpu, gpu or npu.</param>
+/// <param name="RestartPending">The device was changed after the agent started; the agent uses the new one after a restart.</param>
+/// <param name="Progress">Indexing progress; null when the agent could not count it.</param>
 public sealed record IpcSettings(
-    IpcRoot[] Roots, string[] Excludes, IpcFileType[]? FileTypes = null, double? MinSimilarity = null, string SlowScanTime = "");
+    IpcRoot[] Roots, string[] Excludes, IpcFileType[]? FileTypes = null, double? MinSimilarity = null, string SlowScanTime = "",
+    string Device = "off", bool RestartPending = false, IpcProgress? Progress = null);
+
+/// <param name="TextPending">Stored text segments with no vector yet in the active model's space.</param>
+/// <param name="ImagesPending">Pictures with no picture vector yet.</param>
+/// <param name="TextPerMinute">Measured speed of the text vectors since the agent started; 0 when unknown.</param>
+public sealed record IpcProgress(
+    long FilesIndexed, long FilesPending, long TextTotal, long TextPending, long ImagesTotal, long ImagesPending,
+    double TextPerMinute, string Model);
 
 public sealed record IpcResponse(bool Ok, string? Error = null, IpcHit[]? Hits = null, IpcStatus? Status = null, IpcSettings? Settings = null);
 
@@ -30,7 +41,7 @@ public static class IpcOps
     public const string Search = "search", Status = "status", Ping = "ping";
     public const string Settings = "settings", AddRoot = "add-root", RemoveRoot = "remove-root";
     public const string AddExclude = "add-exclude", RemoveExclude = "remove-exclude";
-    public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity", SetSlowScan = "set-slow-scan";
+    public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity", SetSlowScan = "set-slow-scan", SetDevice = "set-device";
     public const string FastList = "fast", SlowList = "slow";
 }
 

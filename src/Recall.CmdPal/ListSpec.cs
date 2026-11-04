@@ -18,7 +18,9 @@ internal sealed record ListSpec(
     Func<string, string>? Normalize = null,
     StringComparer? Comparer = null,
     bool Multiline = true,
-    string? Builtin = null)
+    string? Builtin = null,
+    bool ReadOnly = false,
+    string SaveLabel = "Save")
 {
     public StringComparer Equality => Comparer ?? StringComparer.OrdinalIgnoreCase;
 

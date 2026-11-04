@@ -11,6 +11,14 @@ internal static class SettingsSpecs
 
     public static IReadOnlyList<ListSpec> All { get; } =
     [
+        new ListSpec(
+            "Indexing progress",
+            "How far the first scan and the semantic vectors are. Press Refresh to read the numbers again.",
+            "",
+            ProgressLines,
+            _ => SettingsClient.LoadAsync(),
+            ReadOnly: true,
+            SaveLabel: "Refresh"),
         Folders("Fast folders",
             "One folder per line. Watched live: a new or changed file is searchable within seconds. Use it for folders you work in every day.",
             watched: true),
@@ -60,7 +68,44 @@ internal static class SettingsSpecs
             s => s.MinSimilarity is { } v ? [v.ToString("0.00", CultureInfo.InvariantCulture)] : [],
             c => c.Wanted.Count > 0 ? SettingsClient.SetSimilarityAsync(c.Wanted[0]) : Task.FromResult(new SettingsResult(null, "Enter a number between 0 and 1")),
             Multiline: false),
+        new ListSpec(
+            "Semantic search device",
+            "Where the meaning of files is computed. cpu: multilingual-e5-small, works everywhere, lighter. "
+            + "npu: EmbeddingGemma 2 on the AMD NPU, finds more but indexes about five times slower and also makes picture vectors; needs the NPU server "
+            + "and the model bundle set in config.json. off: no semantic search. gpu is not available yet. "
+            + "The new device is used after the agent restarts. Vectors of the other model stay in the index and are not recomputed when you switch back.",
+            "npu",
+            s => s.Device.Length > 0 ? [s.Device + (s.RestartPending ? "   (restart the agent to apply)" : "")] : [],
+            c => c.Wanted.Count > 0 ? SettingsClient.SetDeviceAsync(c.Wanted[0].Split(' ')[0]) : Task.FromResult(new SettingsResult(null, "Enter off, cpu or npu")),
+            Multiline: false),
     ];
+
+    private static IEnumerable<string> ProgressLines(IpcSettings s)
+    {
+        if (s.Progress is not { } p) return [];
+        var lines = new List<string> { $"Files: {p.FilesIndexed:N0} indexed, {p.FilesPending:N0} waiting in the queue." };
+        if (p.Model.Length == 0)
+        {
+            lines.Add("Semantic search is off.");
+            return lines;
+        }
+        lines.Add($"Model: {p.Model}.");
+        lines.Add($"Text vectors: {p.TextTotal - p.TextPending:N0} of {p.TextTotal:N0} ({Percent(p.TextTotal - p.TextPending, p.TextTotal)}). {Eta(p.TextPending, p.TextPerMinute)}");
+        if (p.ImagesTotal > 0)
+            lines.Add($"Picture vectors: {p.ImagesTotal - p.ImagesPending:N0} of {p.ImagesTotal:N0} ({Percent(p.ImagesTotal - p.ImagesPending, p.ImagesTotal)}). "
+                + (p.TextPending > 0 ? "They start after the text." : p.ImagesPending > 0 ? "About a second each." : ""));
+        return lines;
+    }
+
+    private static string Percent(long done, long total) => total <= 0 ? "100%" : $"{done * 100 / total}%";
+
+    private static string Eta(long pending, double perMinute)
+    {
+        if (pending <= 0) return "Done.";
+        if (perMinute <= 0) return "Speed is not known yet.";
+        var minutes = pending / perMinute;
+        return minutes < 90 ? $"About {Math.Ceiling(minutes)} min left." : $"About {minutes / 60:0.#} h left.";
+    }
 
     private static ListSpec Folders(string title, string help, bool watched) => new(
         title, help, "D:\\Work\nC:\\Users\\me\\Documents",

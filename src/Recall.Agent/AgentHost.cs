@@ -63,7 +63,8 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         using var queue = _queue = new ChangeQueue(options.Debounce ?? TimeSpan.FromSeconds(2), FlushAsync, _log, () => gate?.IsPaused ?? false);
         if (gate != null) gate.Changed += (paused, _) => { if (!paused) queue.Resume(); };
 
-        var handler = new AgentRequestHandler(SearchEngine.ForDatabase(options.DbPath, embedder), store, queue, _settings, () => _lastRunUtc);
+        var handler = new AgentRequestHandler(SearchEngine.ForDatabase(options.DbPath, embedder), store, queue, _settings, () => _lastRunUtc, embedder);
+        _ = Task.Run(handler.StartMeasuring, ct);
         var pipe = new PipeServer(handler.HandleAsync, options.PipeName).RunAsync(ct);
         if (pipe.IsFaulted) await pipe; // the pipe name is already owned by another process
 

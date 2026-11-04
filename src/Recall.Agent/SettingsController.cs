@@ -31,6 +31,7 @@ public sealed class SettingsController(
     private readonly object _gate = new();
     private readonly SettingsValidator _validate = new(isSystemPath ?? BuiltInRules.IsSystemPath);
     private RecallConfig _config = initial;
+    private readonly string _startedDevice = DeviceChoice.Of(initial);
 
     /// <summary>The outcome of an edit: the new configuration, or the reason it was refused.</summary>
     private readonly record struct Edit(RecallConfig? Next, string? Error = null, Action? After = null)
@@ -49,7 +50,7 @@ public sealed class SettingsController(
             [.. c.Roots.Select(r => new IpcRoot(r.Path, r.Watched))],
             [.. c.GlobalIgnorePatterns],
             [.. c.CustomFileTypes.OrderBy(t => t.Key).Select(t => new IpcFileType(t.Key, t.Value))],
-            MinSimilarity(c), c.SlowScanTime);
+            MinSimilarity(c), c.SlowScanTime, DeviceChoice.Of(c), DeviceChoice.Of(c) != _startedDevice);
     }
 
     public IpcResponse Handle(IpcRequest r) => r.Op switch
@@ -64,6 +65,7 @@ public sealed class SettingsController(
         IpcOps.RemoveType => Change(c => RemoveType(c, r.Value)),
         IpcOps.SetSimilarity => Change(c => SetSimilarity(c, r.Value)),
         IpcOps.SetSlowScan => Change(c => SetSlowScan(c, r.Value)),
+        IpcOps.SetDevice => Change(c => SetDevice(c, r.Value)),
         _ => new IpcResponse(false, "unknown operation"),
     };
 
@@ -148,6 +150,10 @@ public sealed class SettingsController(
         if (!SlowScanSchedule.TryParse(value, out var time)) return Edit.Refuse("Time must look like 03:00 (24-hour clock), or be empty");
         return new Edit(c with { SlowScanTime = SlowScanSchedule.Format(time) });
     }
+
+    /// <summary>The embedder is built at start, so the agent uses the new device after a restart (the snapshot says so).</summary>
+    private static Edit SetDevice(RecallConfig c, string? value) =>
+        DeviceChoice.Apply(c, value, out var next) is { } error ? Edit.Refuse(error) : new Edit(next);
 
     private const string ListError = "List must be fast or slow";
 
