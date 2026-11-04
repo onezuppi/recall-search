@@ -1,0 +1,34 @@
+name: Ошибка
+description: Что-то работает не так, как ожидалось
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: Что вы сделали, что ожидали и что получили.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия Recall Search
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Версия Windows и PowerToys
+      placeholder: "Windows 11 24H2, PowerToys 0.9x"
+  - type: dropdown
+    id: device
+    attributes:
+      label: Поиск по смыслу
+      options: ["Выключен", "cpu", "npu"]
+  - type: textarea
+    id: log
+    attributes:
+      label: Журнал
+      description: Последние строки из %LOCALAPPDATA%\RecallSearch\recall.log. Уберите из них личные пути.
+      render: text

@@ -4,3 +4,4 @@ obj/
 *.user
 .superpowers/
 TestResults/
+dist/
