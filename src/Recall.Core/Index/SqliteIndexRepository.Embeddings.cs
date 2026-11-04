@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Recall.Core.Search;
 using Microsoft.Data.Sqlite;
 
 namespace Recall.Core.Index;
@@ -52,6 +53,7 @@ public sealed partial class SqliteIndexRepository : IEmbeddingRepository
             }
             tx.Commit();
         }
+        VectorVersion.Bump(); // after the commit, so a cache rebuilt in between cannot take the old rows as current
     }
 
     public void DeleteSpace(string space)
@@ -63,5 +65,6 @@ public sealed partial class SqliteIndexRepository : IEmbeddingRepository
             cmd.Parameters.AddWithValue("$space", space);
             cmd.ExecuteNonQuery();
         }
+        VectorVersion.Bump();
     }
 }

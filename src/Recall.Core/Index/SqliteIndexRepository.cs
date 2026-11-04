@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Recall.Core.Search;
 using Recall.Core.Scan;
 
 namespace Recall.Core.Index;
@@ -120,8 +121,10 @@ public sealed partial class SqliteIndexRepository : IIndexRepository
                 cmd.Parameters.AddWithValue("$e", (object?)error ?? DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
-            if (previous != null && previous != contentId) DeleteIfUnreferenced(tx, [previous.Value]);
+            var released = previous != null && previous != contentId;
+            if (released) DeleteIfUnreferenced(tx, [previous!.Value]);
             tx.Commit();
+            if (released) VectorVersion.Bump();
         }
     }
 
@@ -143,6 +146,7 @@ public sealed partial class SqliteIndexRepository : IIndexRepository
             DeleteIfUnreferenced(tx, released);
             tx.Commit();
         }
+        VectorVersion.Bump();
     }
 
     private long? ContentOf(SqliteTransaction tx, string path)

@@ -17,6 +17,7 @@ internal static class IndexSchema
           error TEXT NULL);
         CREATE INDEX IF NOT EXISTS files_root ON files(root);
         CREATE INDEX IF NOT EXISTS files_content ON files(content_id);
+        CREATE INDEX IF NOT EXISTS files_mtime ON files(mtime);
         CREATE TABLE IF NOT EXISTS dirs(
           path TEXT PRIMARY KEY COLLATE NOCASE,
           root TEXT NOT NULL COLLATE NOCASE,

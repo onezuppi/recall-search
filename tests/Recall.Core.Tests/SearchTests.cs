@@ -168,6 +168,28 @@ public class SearchTests : IDisposable
         Assert.Equal("Шаумяна 20, офис продаж", hit.Context);
     }
 
+    [Theory]
+    [InlineData("аб")]
+    [InlineData("АБ")]
+    [InlineData("Аб")]
+    [InlineData("аБ")]
+    public void Two_letter_search_ignores_case_of_cyrillic_text(string typed)
+    {
+        Add(@"C:\n\s1.txt", "text", Now, ("", "слово с АБвгд внутри"));
+        Add(@"C:\n\s2.txt", "text", Now, ("", "ничего подходящего"));
+        Assert.Equal(@"C:\n\s1.txt", Assert.Single(SearchEngine.ForDatabase(Db).Search(typed, 5)).Path);
+    }
+
+    [Fact]
+    public void Short_term_hits_come_newest_file_first()
+    {
+        Add(@"C:\n\old.txt", "text", Now.AddDays(-5), ("", "xq old"));
+        Add(@"C:\n\new.txt", "text", Now, ("", "xq new"));
+        Add(@"C:\n\mid.txt", "text", Now.AddDays(-2), ("", "xq mid"));
+        var hits = SearchEngine.ForDatabase(Db).Search("xq", 5).Select(h => System.IO.Path.GetFileName(h.Path));
+        Assert.Equal(["new.txt", "mid.txt", "old.txt"], hits);
+    }
+
     [Fact]
     public void File_name_only_hit_has_no_context()
     {

@@ -6,22 +6,25 @@ namespace Recall.Core.Search;
 /// <summary>SQLite implementation of <see cref="ISearchRepository"/>: all search SQL lives here.</summary>
 public sealed class SqliteSearchRepository(string dbPath) : ISearchRepository
 {
+    private readonly VectorCache _vectors = new();
+
     public ISearchSession? Open()
     {
         if (!File.Exists(dbPath)) return null;
         var db = new SqliteConnection($"Data Source={dbPath};Mode=ReadWrite");
         db.Open();
-        return new Session(db);
+        return new Session(db, _vectors);
     }
 
     private sealed class Session : ISearchSession
     {
         private const int ScanTextMax = 200000, ContextTextMax = 300000;
         private readonly SqliteConnection _db;
+        private readonly VectorCache _vectors;
 
-        public Session(SqliteConnection db)
+        public Session(SqliteConnection db, VectorCache vectors)
         {
-            _db = db;
+            (_db, _vectors) = (db, vectors);
             RegisterFunctions(db);
         }
 
@@ -29,38 +32,87 @@ public sealed class SqliteSearchRepository(string dbPath) : ISearchRepository
         {
             var (where, args) = Filters(filter);
             var extra = string.Concat(shortTerms.Select((_, i) => $" AND rs_contains(s.text, $s{i})"));
+            var restricted = filter.In != null || filter.Type != null || filter.After != null || filter.Before != null || shortTerms.Count > 0;
             using var cmd = _db.CreateCommand();
-            cmd.CommandText = $"""
-                SELECT f.path, c.grp, s.locator, snippet(segments_fts, 0, '', '', ' … ', 64), f.mtime, f.size, bm25(segments_fts), s.id
-                FROM segments_fts
-                JOIN segments s ON s.id = segments_fts.rowid
-                JOIN contents c ON c.id = s.content_id
-                JOIN files f ON f.content_id = c.id
-                WHERE segments_fts MATCH $m AND {where}{extra}
-                ORDER BY bm25(segments_fts)
-                LIMIT $lim
-                """;
+            // The snippet column is empty: the engine replaces it with a window of the segment text for every hit it returns.
+            // Without restricting filters the best segments are picked from the FTS table alone, so the joins run for a few rows
+            // instead of for every segment that contains a common word. With filters the join must come first, or the pool could be
+            // left empty by them.
+            cmd.CommandText = restricted
+                ? $"""
+                    SELECT f.path, c.grp, s.locator, '', f.mtime, f.size, bm25(segments_fts), s.id
+                    FROM segments_fts
+                    JOIN segments s ON s.id = segments_fts.rowid
+                    JOIN contents c ON c.id = s.content_id
+                    JOIN files f ON f.content_id = c.id
+                    WHERE segments_fts MATCH $m AND {where}{extra}
+                    ORDER BY bm25(segments_fts)
+                    LIMIT $lim
+                    """
+                : $"""
+                    WITH m AS MATERIALIZED (
+                        SELECT rowid AS id, bm25(segments_fts) AS rank FROM segments_fts
+                        WHERE segments_fts MATCH $m ORDER BY rank LIMIT $pool)
+                    SELECT f.path, c.grp, s.locator, '', f.mtime, f.size, m.rank, s.id
+                    FROM m
+                    JOIN segments s ON s.id = m.id
+                    JOIN contents c ON c.id = s.content_id
+                    JOIN files f ON f.content_id = c.id
+                    WHERE {where}
+                    ORDER BY m.rank
+                    LIMIT $lim
+                    """;
             cmd.Parameters.AddWithValue("$m", matchExpression);
+            cmd.Parameters.AddWithValue("$pool", Math.Max(limit, 1) * PoolFactor);
             Bind(cmd, args, limit, shortTerms, "$s");
             return ReadSegments(cmd, rankColumn: 6, idColumn: 7);
         }
 
+        /// <summary>Segments taken from the FTS table per wanted row: files sharing one content and files that are not ok use up pool entries.</summary>
+        private const int PoolFactor = 4;
+
         public IReadOnlyList<SegmentRow> ScanSegments(ParsedQuery filter, IReadOnlyList<string> shortTerms, int limit)
         {
             var (where, args) = Filters(filter);
-            var conds = string.Concat(shortTerms.Select((_, i) => $" AND rs_contains(s.text, $s{i})"));
+            // Case variants let SQLite's own instr reject most rows before the slower managed rs_contains runs.
+            var conds = string.Concat(shortTerms.Select((_, i) => $"{CaseFilter(shortTerms[i], i)} AND rs_contains(s.text, $s{i})").Select(c => " AND " + c));
             using var cmd = _db.CreateCommand();
+            // CROSS JOIN fixes the order: newest files first through the mtime index, so a common term stops after `limit` rows.
             cmd.CommandText = $"""
                 SELECT f.path, c.grp, s.locator, substr(s.text, 1, {ScanTextMax}), f.mtime, f.size, 0.0, s.id
-                FROM segments s
-                JOIN contents c ON c.id = s.content_id
-                JOIN files f ON f.content_id = c.id
+                FROM files f
+                CROSS JOIN contents c ON c.id = f.content_id
+                CROSS JOIN segments s ON s.content_id = c.id
                 WHERE {where}{conds}
                 ORDER BY f.mtime DESC
                 LIMIT $lim
                 """;
             Bind(cmd, args, limit, shortTerms, "$s");
+            for (var i = 0; i < shortTerms.Count; i++)
+                foreach (var (v, j) in CaseVariants(shortTerms[i]).Select((v, j) => (v, j)))
+                    cmd.Parameters.AddWithValue($"$s{i}v{j}", System.Text.Encoding.UTF8.GetBytes(v));
             return ReadSegments(cmd, rankColumn: 6, idColumn: 7);
+        }
+
+        private const int MaxVariantLength = 2;
+
+        /// <summary>Every lower/upper combination of a term of up to two characters; longer terms get none (the filter is skipped).</summary>
+        private static IReadOnlyList<string> CaseVariants(string term)
+        {
+            if (term.Length is 0 or > MaxVariantLength) return [];
+            var variants = new List<string> { "" };
+            foreach (var ch in term)
+            {
+                var forms = new[] { char.ToLowerInvariant(ch), char.ToUpperInvariant(ch) }.Distinct().ToArray();
+                variants = [.. variants.SelectMany(v => forms.Select(f => v + f))];
+            }
+            return variants;
+        }
+
+        private static string CaseFilter(string term, int index)
+        {
+            var n = CaseVariants(term).Count;
+            return n == 0 ? "1" : "(" + string.Join(" OR ", Enumerable.Range(0, n).Select(j => $"instr(CAST(s.text AS BLOB), $s{index}v{j}) > 0")) + ")";
         }
 
         public IReadOnlyList<FileRow> MatchFileNames(ParsedQuery filter, IReadOnlyList<string> terms, int limit)
@@ -82,7 +134,10 @@ public sealed class SqliteSearchRepository(string dbPath) : ISearchRepository
             return rows;
         }
 
-        public void ScanVectors(string space, int dimensions, VectorVisitor visit)
+        public void ScanVectors(string space, int dimensions, VectorVisitor visit) =>
+            _vectors.Scan(space, dimensions, v => StreamVectors(space, dimensions, v), visit);
+
+        private void StreamVectors(string space, int dimensions, VectorVisitor visit)
         {
             using var cmd = _db.CreateCommand();
             cmd.CommandText = "SELECT segment_id, vec FROM embeddings WHERE space = $space AND chunk >= 0";
