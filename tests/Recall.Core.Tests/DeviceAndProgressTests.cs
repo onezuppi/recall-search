@@ -80,6 +80,44 @@ public class DeviceAndProgressTests : IDisposable
         Assert.False(controller.Handle(new IpcRequest(IpcOps.SetDevice, Value: "gpu")).Ok);
     }
 
+    private sealed class StubEmbedder : IEmbedder
+    {
+        public string Space => "m@1";
+        public int Dimensions => 1;
+        public float[][] Embed(IReadOnlyList<string> texts, EmbedKind kind) => [.. texts.Select(_ => new float[] { 1 })];
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task Warm_request_answers_at_once_and_loads_the_model_in_the_background()
+    {
+        using var store = SqliteIndexRepository.Open(Db);
+        var loads = 0;
+        using var host = new EmbedderHost("m@1", () => { Interlocked.Increment(ref loads); return new StubEmbedder(); }, TimeSpan.FromMinutes(1));
+        using var queue = new ChangeQueue(TimeSpan.FromSeconds(1), (_, _) => Task.CompletedTask, new NullLog());
+        var handler = new AgentRequestHandler(
+            SearchEngine.ForDatabase(Db), store, queue, new SettingsController(Config(), Cfg, null, new NoEffects()), () => null, host);
+
+        Assert.False(host.IsLoaded);
+        Assert.True((await handler.HandleAsync(new IpcRequest(IpcOps.Warm), default)).Ok);
+        for (var i = 0; i < 100 && !host.IsLoaded; i++) await Task.Delay(20);
+        Assert.True(host.IsLoaded);
+
+        await handler.HandleAsync(new IpcRequest(IpcOps.Warm), default); // already loaded: no second load
+        await Task.Delay(100);
+        Assert.Equal(1, loads);
+    }
+
+    [Fact]
+    public async Task Warm_request_without_an_embedder_is_harmless()
+    {
+        using var store = SqliteIndexRepository.Open(Db);
+        using var queue = new ChangeQueue(TimeSpan.FromSeconds(1), (_, _) => Task.CompletedTask, new NullLog());
+        var handler = new AgentRequestHandler(
+            SearchEngine.ForDatabase(Db), store, queue, new SettingsController(Config(), Cfg, null, new NoEffects()), () => null);
+        Assert.True((await handler.HandleAsync(new IpcRequest(IpcOps.Warm), default)).Ok);
+    }
+
     [Theory]
     [InlineData("20", 20)]
     [InlineData(" 0 ", 0)]

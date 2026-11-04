@@ -26,6 +26,7 @@ public sealed class AgentRequestHandler(
         IpcOps.Ping => new IpcResponse(true),
         IpcOps.Status => Status(),
         IpcOps.Search => Search(request),
+        IpcOps.Warm => Warm(),
         _ when SettingsOps.Contains(request.Op) => WithProgress(settings.Handle(request)),
         _ => new IpcResponse(false, "unknown operation"),
     });
@@ -58,6 +59,18 @@ public sealed class AgentRequestHandler(
             : new EmbeddingBacklog(0, 0, 0, 0);
         var speed = embedder == null ? 0 : _tracker.Observe(backlog.TextPending);
         return new IpcProgress(indexed, queue.Pending, backlog.TextTotal, backlog.TextPending, backlog.ImagesTotal, backlog.ImagesPending, speed, embedder?.Space ?? "");
+    }
+
+    /// <summary>Loads the model in the background and lets the host unload it after its idle time, as after a query.</summary>
+    private IpcResponse Warm()
+    {
+        if (embedder is { IsLoaded: false })
+            _ = Task.Run(() =>
+            {
+                try { embedder.Acquire().Dispose(); }
+                catch (Exception) { /* the model is missing or broken: search falls back to text and says nothing */ }
+            });
+        return new IpcResponse(true);
     }
 
     private IpcResponse Search(IpcRequest request)

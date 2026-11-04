@@ -19,7 +19,11 @@ internal sealed partial class SearchPage : DynamicListPage
         ShowDetails = true;
     }
 
-    public override IListItem[] GetItems() => _items;
+    public override IListItem[] GetItems()
+    {
+        SearchSession.WarmUp(); // the page was opened
+        return _items;
+    }
 
     public override void UpdateSearchText(string oldSearch, string newSearch) => Start(newSearch);
 
@@ -32,6 +36,7 @@ internal sealed partial class SearchPage : DynamicListPage
 
     private void Start(string query)
     {
+        SearchSession.WarmUp();
         _current?.Cancel();
         if (string.IsNullOrWhiteSpace(query))
         {

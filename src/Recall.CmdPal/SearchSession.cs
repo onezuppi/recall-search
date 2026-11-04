@@ -10,7 +10,30 @@ internal sealed record SearchOutcome(SearchState State, IReadOnlyList<IpcHit> Hi
 internal sealed class SearchSession
 {
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(150);
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
+    // A query that arrives before the model is loaded waits for the load (about two seconds on the NPU).
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(6);
+
+    private static long _lastWarmTicks;
+    private static readonly TimeSpan WarmEvery = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Tells the agent to load the model. Called when the page opens and on typing, at most every 20 seconds (the agent keeps a loaded model
+    /// for a minute), so the load of about two seconds runs while the user types and the first query finds the model ready.
+    /// </summary>
+    public static void WarmUp()
+    {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastWarmTicks);
+        if (now - last < WarmEvery.TotalMilliseconds || Interlocked.CompareExchange(ref _lastWarmTicks, now, last) != last) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (PipeClient.IsListening()) await PipeClient.SendAsync(new IpcRequest(IpcOps.Warm), RequestTimeout, default);
+            }
+            catch (Exception e) when (e is UntrustedServerException or UnauthorizedAccessException or TimeoutException or IOException) { }
+        });
+    }
 
     public async Task<SearchOutcome> SearchAsync(string text, CancellationToken ct)
     {

@@ -39,6 +39,9 @@ public sealed record IpcResponse(bool Ok, string? Error = null, IpcHit[]? Hits =
 public static class IpcOps
 {
     public const string Search = "search", Status = "status", Ping = "ping";
+
+    /// <summary>The extension was opened: load the embedding model now, so the first query does not wait for it. Answers at once.</summary>
+    public const string Warm = "warm";
     public const string Settings = "settings", AddRoot = "add-root", RemoveRoot = "remove-root";
     public const string AddExclude = "add-exclude", RemoveExclude = "remove-exclude";
     public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity", SetSlowScan = "set-slow-scan", SetDevice = "set-device", SetEmbedInterval = "set-embed-interval";
