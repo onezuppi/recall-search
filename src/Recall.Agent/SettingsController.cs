@@ -50,7 +50,7 @@ public sealed class SettingsController(
             [.. c.Roots.Select(r => new IpcRoot(r.Path, r.Watched))],
             [.. c.GlobalIgnorePatterns],
             [.. c.CustomFileTypes.OrderBy(t => t.Key).Select(t => new IpcFileType(t.Key, t.Value))],
-            MinSimilarity(c), c.SlowScanTime, DeviceChoice.Of(c), DeviceChoice.Of(c) != _startedDevice);
+            MinSimilarity(c), c.SlowScanTime, DeviceChoice.Of(c), DeviceChoice.Of(c) != _startedDevice, EmbedIntervalMinutes: c.EmbedIntervalMinutes);
     }
 
     public IpcResponse Handle(IpcRequest r) => r.Op switch
@@ -66,6 +66,7 @@ public sealed class SettingsController(
         IpcOps.SetSimilarity => Change(c => SetSimilarity(c, r.Value)),
         IpcOps.SetSlowScan => Change(c => SetSlowScan(c, r.Value)),
         IpcOps.SetDevice => Change(c => SetDevice(c, r.Value)),
+        IpcOps.SetEmbedInterval => Change(c => SetEmbedInterval(c, r.Value)),
         _ => new IpcResponse(false, "unknown operation"),
     };
 
@@ -154,6 +155,14 @@ public sealed class SettingsController(
     /// <summary>The embedder is built at start, so the agent uses the new device after a restart (the snapshot says so).</summary>
     private static Edit SetDevice(RecallConfig c, string? value) =>
         DeviceChoice.Apply(c, value, out var next) is { } error ? Edit.Refuse(error) : new Edit(next);
+
+    /// <summary>Read live by the vector loop, so no effect callback is needed.</summary>
+    private static Edit SetEmbedInterval(RecallConfig c, string? value) =>
+        int.TryParse(value?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var minutes) && minutes <= MaxEmbedIntervalMinutes
+            ? new Edit(c with { EmbedIntervalMinutes = minutes })
+            : Edit.Refuse($"Enter whole minutes from 0 to {MaxEmbedIntervalMinutes} (0 makes vectors right after each change)");
+
+    private const int MaxEmbedIntervalMinutes = 1440;
 
     private const string ListError = "List must be fast or slow";
 

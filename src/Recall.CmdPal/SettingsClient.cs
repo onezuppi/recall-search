@@ -30,6 +30,8 @@ internal static class SettingsClient
 
     public static Task<SettingsResult> SetSlowScanAsync(string time) => CallAsync(IpcOps.SetSlowScan, time);
 
+    public static Task<SettingsResult> SetEmbedIntervalAsync(string minutes) => CallAsync(IpcOps.SetEmbedInterval, minutes);
+
     public static Task<SettingsResult> SetDeviceAsync(string device) => CallAsync(IpcOps.SetDevice, device);
 
     public static Task<SettingsResult> AddTypeAsync(string extension, string group) => CallAsync(IpcOps.AddType, extension, group);

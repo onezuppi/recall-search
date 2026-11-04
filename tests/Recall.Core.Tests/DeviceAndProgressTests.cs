@@ -80,6 +80,33 @@ public class DeviceAndProgressTests : IDisposable
         Assert.False(controller.Handle(new IpcRequest(IpcOps.SetDevice, Value: "gpu")).Ok);
     }
 
+    [Theory]
+    [InlineData("20", 20)]
+    [InlineData(" 0 ", 0)]
+    [InlineData("1440", 1440)]
+    public void Embed_interval_is_saved_in_whole_minutes(string typed, int expected)
+    {
+        var controller = new SettingsController(Config(), Cfg, null, new NoEffects());
+        Assert.Equal(20, controller.Snapshot().EmbedIntervalMinutes);
+        var set = controller.Handle(new IpcRequest(IpcOps.SetEmbedInterval, Value: typed));
+        Assert.True(set.Ok);
+        Assert.Equal(expected, set.Settings!.EmbedIntervalMinutes);
+        Assert.Equal(expected, RecallConfig.Load(Cfg).EmbedIntervalMinutes);
+    }
+
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("1.5")]
+    [InlineData("soon")]
+    [InlineData("1441")]
+    [InlineData("")]
+    public void Embed_interval_refuses_anything_else(string typed)
+    {
+        var controller = new SettingsController(Config(), Cfg, null, new NoEffects());
+        Assert.False(controller.Handle(new IpcRequest(IpcOps.SetEmbedInterval, Value: typed)).Ok);
+        Assert.Equal(20, controller.Snapshot().EmbedIntervalMinutes);
+    }
+
     [Fact]
     public void Tracker_reports_the_speed_since_the_first_reading_and_ignores_a_growing_backlog()
     {

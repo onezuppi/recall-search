@@ -25,7 +25,7 @@ public sealed record IpcFileType(string Extension, string Group);
 /// <param name="Progress">Indexing progress; null when the agent could not count it.</param>
 public sealed record IpcSettings(
     IpcRoot[] Roots, string[] Excludes, IpcFileType[]? FileTypes = null, double? MinSimilarity = null, string SlowScanTime = "",
-    string Device = "off", bool RestartPending = false, IpcProgress? Progress = null);
+    string Device = "off", bool RestartPending = false, IpcProgress? Progress = null, int EmbedIntervalMinutes = 20);
 
 /// <param name="TextPending">Stored text segments with no vector yet in the active model's space.</param>
 /// <param name="ImagesPending">Pictures with no picture vector yet.</param>
@@ -41,7 +41,7 @@ public static class IpcOps
     public const string Search = "search", Status = "status", Ping = "ping";
     public const string Settings = "settings", AddRoot = "add-root", RemoveRoot = "remove-root";
     public const string AddExclude = "add-exclude", RemoveExclude = "remove-exclude";
-    public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity", SetSlowScan = "set-slow-scan", SetDevice = "set-device";
+    public const string SetWatched = "set-watched", AddType = "add-type", RemoveType = "remove-type", SetSimilarity = "set-similarity", SetSlowScan = "set-slow-scan", SetDevice = "set-device", SetEmbedInterval = "set-embed-interval";
     public const string FastList = "fast", SlowList = "slow";
 }
 

@@ -179,6 +179,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     private readonly object _embedGate = new();
     private Task? _embedLoop;
     private bool _embedAgain;
+    private DateTime? _embedDoneAt; // UTC end of the last vector run; null until the first one (the start-up backlog) is done
 
     /// <summary>
     /// Fills the vectors in the background, outside the indexing gate: a backlog of hours (a first run on the NPU) must not hold up the
@@ -193,10 +194,17 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
             {
                 do
                 {
-                    lock (_embedGate) _embedAgain = false;
                     try
                     {
+                        // After the first backlog is done, new files wait for the next slot: the model is in memory only then.
+                        if (_embedDoneAt is { } doneAt)
+                        {
+                            var wait = doneAt + TimeSpan.FromMinutes(_settings!.Config.EmbedIntervalMinutes) - DateTime.UtcNow;
+                            if (wait > TimeSpan.Zero) await Task.Delay(wait, _shutdown);
+                        }
+                        lock (_embedGate) _embedAgain = false;
                         var r = await _runner!.EmbedPendingAsync(_shutdown);
+                        _embedDoneAt = DateTime.UtcNow;
                         if (r.EmbeddedChunks > 0 || r.EmbedError != null) _log.Info($"vectors: {r.EmbeddedChunks} chunk(s){(r.EmbedError != null ? ", error: " + r.EmbedError : "")}");
                     }
                     catch (OperationCanceledException) { return; }

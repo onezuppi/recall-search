@@ -49,6 +49,12 @@ public sealed record RecallConfig(
     /// <summary>Local time ("HH:mm") of the daily scan of the slow folders. Empty turns the scheduled scan off; they are then scanned at start only.</summary>
     public string SlowScanTime { get; init; } = Scan.SlowScanSchedule.Default;
 
+    /// <summary>
+    /// Minutes between two runs of the vector stage once the backlog is done. New files wait for the next run, so the model is loaded
+    /// (about 2 GB for the NPU one) at most this often. 0 makes vectors right after each change. The first backlog is never delayed.
+    /// </summary>
+    public int EmbedIntervalMinutes { get; init; } = 20;
+
     /// <summary>Pause indexing while a full screen game or a presentation is running.</summary>
     public bool PauseWhenBusy { get; init; } = true;
 

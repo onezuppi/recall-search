@@ -78,6 +78,15 @@ internal static class SettingsSpecs
             s => s.Device.Length > 0 ? [s.Device + (s.RestartPending ? "   (restart the agent to apply)" : "")] : [],
             c => c.Wanted.Count > 0 ? SettingsClient.SetDeviceAsync(c.Wanted[0].Split(' ')[0]) : Task.FromResult(new SettingsResult(null, "Enter off, cpu or npu")),
             Multiline: false),
+        new ListSpec(
+            "Vector update interval (minutes)",
+            "How often the model makes vectors for new and changed files, once the first backlog is done. In between the model is not in memory. "
+            + "The first run after the agent starts, and the whole first backlog, are never delayed. 0: right after each change. "
+            + "Text search finds new files at once; only the meaning-based search waits for the next run.",
+            "20",
+            s => [s.EmbedIntervalMinutes.ToString()],
+            c => c.Wanted.Count > 0 ? SettingsClient.SetEmbedIntervalAsync(c.Wanted[0]) : Task.FromResult(new SettingsResult(null, "Enter minutes, for example 20")),
+            Multiline: false),
     ];
 
     private static IEnumerable<string> ProgressLines(IpcSettings s)

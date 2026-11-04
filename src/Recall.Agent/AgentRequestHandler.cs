@@ -18,7 +18,7 @@ public sealed class AgentRequestHandler(
     [
         IpcOps.Settings, IpcOps.AddRoot, IpcOps.RemoveRoot, IpcOps.SetWatched,
         IpcOps.AddExclude, IpcOps.RemoveExclude, IpcOps.AddType, IpcOps.RemoveType,
-        IpcOps.SetSimilarity, IpcOps.SetSlowScan, IpcOps.SetDevice,
+        IpcOps.SetSimilarity, IpcOps.SetSlowScan, IpcOps.SetDevice, IpcOps.SetEmbedInterval,
     ];
 
     public Task<IpcResponse> HandleAsync(IpcRequest request, CancellationToken ct) => Task.FromResult(request.Op switch
