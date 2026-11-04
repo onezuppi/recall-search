@@ -30,8 +30,8 @@ public static class ModelCatalog
             new("onnx/sentencepiece.bpe.model", "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865", 5069051),
         ], MinSimilarity: 0.84f),
         // A local bundle, not downloaded. Runs only on the NPU through the provider that the config points at.
-        // The similarity floor is not calibrated yet, so no semantic hit is cut.
-        new("embeddinggemma2-npu", "", "taconite-0.2.0", 768, 2048, [], Kind: ModelSpec.KindTaconiteNpu),
+        // Floor 0.65 separates nonsense queries (up to 0.62) from the right file (from 0.68) on 18 queries; see docs/benchmarks/2026-11-gemma-vs-e5.md.
+        new("embeddinggemma2-npu", "", "taconite-0.2.0", 768, 2048, [], MinSimilarity: 0.65f, Kind: ModelSpec.KindTaconiteNpu),
     ];
 
     public static ModelSpec? Find(string id) => All.FirstOrDefault(m => m.Id.Equals(id, StringComparison.OrdinalIgnoreCase));

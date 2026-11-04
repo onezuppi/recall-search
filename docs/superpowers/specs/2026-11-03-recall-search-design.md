@@ -37,8 +37,10 @@ for OCR text on CPU. Recall Search differs in four ways:
 
 - Source code search. The user decided code is not a real use case. Code
   files are excluded by extension (section 5.4).
-- Exact spoken-word search in audio (speech-to-text).
-- Video (the model supports it; later). Mail files (MSG, EML). XD, PDN. Legacy DOC and XLS. These are later
+- Audio and video of any kind (decision of 2026-11-04, user). Sections 5 and 7 below still mention audio
+  embedding; read them as "not built". No speech-to-text, no audio encoder, no video frames. Only text and images
+  are indexed.
+- Mail files (MSG, EML). XD, PDN. Legacy DOC and XLS. These are later
   candidates.
 - Cloud sync, accounts, sharing, telemetry.
 - Replacing Windows Search or Everything for file-name search.

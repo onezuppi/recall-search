@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Recall.EmbedEval</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Recall.Core\Recall.Core.csproj" />
+    <None Include="queries.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

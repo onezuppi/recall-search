@@ -1,0 +1,20 @@
+[
+  { "q": "how long does a scan of 200 thousand folders take", "file": "2026-11-fast-scan.md" },
+  { "q": "сколько времени занимает повторный быстрый обход, когда ничего не менялось", "file": "2026-11-fast-scan.md" },
+  { "q": "stop indexing while the user plays a fullscreen game", "file": "pause-while-gaming.md" },
+  { "q": "не мешать играм: приостановить индексацию", "file": "pause-while-gaming.md" },
+  { "q": "why we did not choose FastFlowLM for the NPU", "file": "2026-11-npu-runtime.md" },
+  { "q": "почему выбран Taconite для нейропроцессора", "file": "2026-11-npu-runtime.md" },
+  { "q": "how was the semantic similarity floor calibrated", "file": "2026-11-plan2-embeddings.md" },
+  { "q": "порог похожести для модели E5 и ложные срабатывания", "file": "2026-11-plan2-embeddings.md" },
+  { "q": "detect changed directories without administrator rights", "file": "fast-recurring-scan.md" },
+  { "q": "журнал изменений USN и права администратора", "file": "fast-recurring-scan.md" },
+  { "q": "хранить векторы в памяти в формате float16", "file": "roadmap.md" },
+  { "q": "сколько файлов обработал первый проход и сколько заняло распознавание картинок", "file": "2026-11-plan1.md" },
+  { "q": "как установить расширение для Command Palette", "file": "README.md" },
+  { "q": "search filters by folder, file type and date", "file": "README.md" },
+  { "q": "protocol of the embedding server on the NPU, READY line", "file": "npu-embed-server/README.md" },
+  { "q": "рецепт борща со сметаной", "file": null },
+  { "q": "deadline for the quarterly tax declaration", "file": null },
+  { "q": "how to train a dog to sit", "file": null }
+]
