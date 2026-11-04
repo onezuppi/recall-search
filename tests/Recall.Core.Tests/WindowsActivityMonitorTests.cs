@@ -46,7 +46,7 @@ public class WindowsActivityMonitorTests
     [InlineData("SomeGame", "full screen app, active window: SomeGame")]
     public void Busy_state_with_a_browser_in_front_is_not_a_full_screen_app(string foreground, string? expected)
     {
-        var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => foreground, foregroundCoversMonitor: () => true);
+        var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => foreground, foregroundCoversMonitor: () => true, foregroundMaximized: () => false);
         Assert.Equal(expected, monitor.BusyReason());
     }
 
@@ -56,8 +56,15 @@ public class WindowsActivityMonitorTests
     [InlineData(null, "full screen app, active window: SomeApp")]          // cannot be told: keep the shell's word
     public void Busy_state_counts_only_when_the_window_covers_the_whole_monitor(bool? covers, string? expected)
     {
-        var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => "SomeApp", foregroundCoversMonitor: () => covers);
+        var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => "SomeApp", foregroundCoversMonitor: () => covers, foregroundMaximized: () => false);
         Assert.Equal(expected, monitor.BusyReason());
+    }
+
+    [Fact]
+    public void A_maximized_window_is_never_a_full_screen_app_even_when_it_covers_the_monitor()
+    {
+        var monitor = new WindowsActivityMonitor([], () => 2, foregroundProcess: () => "ChatGPT", foregroundCoversMonitor: () => true, foregroundMaximized: () => true);
+        Assert.Null(monitor.BusyReason());
     }
 
     [Fact]

@@ -13,9 +13,10 @@ namespace Recall.Core.Activity;
 /// <param name="foregroundProcess">Overrides the name of the process that owns the active window (tests).</param>
 public sealed class WindowsActivityMonitor(
     IEnumerable<string> processNames, Func<int?>? queryState = null, Func<IEnumerable<string>>? runningProcesses = null,
-    Func<string?>? foregroundProcess = null, Func<bool?>? foregroundCoversMonitor = null) : IActivityMonitor
+    Func<string?>? foregroundProcess = null, Func<bool?>? foregroundCoversMonitor = null, Func<bool?>? foregroundMaximized = null) : IActivityMonitor
 {
     private readonly Func<bool?> _coversMonitor = foregroundCoversMonitor ?? ForegroundCoversMonitor;
+    private readonly Func<bool?> _maximized = foregroundMaximized ?? ForegroundMaximized;
     private readonly HashSet<string> _names = new(processNames.Select(Normalize), StringComparer.OrdinalIgnoreCase);
     private readonly Func<int?> _queryState = queryState ?? QueryShell;
     private readonly Func<IEnumerable<string>> _running = runningProcesses ?? RunningProcessNames;
@@ -29,6 +30,7 @@ public sealed class WindowsActivityMonitor(
     {
         "browser", "chrome", "msedge", "firefox", "opera", "brave", "vivaldi",
         // Windows shell windows: measured "busy" with the desktop, the file manager and the search box in front.
+        "ShareX", // its region capture overlay covers the screen
         "explorer", "SearchHost", "SearchApp", "StartMenuExperienceHost", "ShellExperienceHost", "ApplicationFrameHost",
     };
 
@@ -39,7 +41,8 @@ public sealed class WindowsActivityMonitor(
         // "Busy" is also reported for an ordinary maximized window (measured: browser, explorer, ChatGPT). A real full screen
         // window covers the whole monitor, taskbar included; one that does not is not a game or a video in full screen.
         var falseBusy = (state is QunsBusy or QunsApp && active != null && BusyFalsePositives.Contains(Normalize(active)))
-            || (state == QunsBusy && _coversMonitor() == false);
+            // A maximized window is the user's ordinary work, also when it covers the monitor (taskbar hidden, frameless apps such as ChatGPT).
+            || (state == QunsBusy && (_maximized() == true || _coversMonitor() == false));
         var reason = falseBusy ? null : Classify(state);
         // The name of the window owner goes into the log: it tells which app Windows treats as full screen.
         if (reason != null) return active == null ? reason : $"{reason}, active window: {active}";
@@ -96,6 +99,15 @@ public sealed class WindowsActivityMonitor(
         var m = info.Monitor;
         return w.Left <= m.Left && w.Top <= m.Top && w.Right >= m.Right && w.Bottom >= m.Bottom;
     }
+
+    private static bool? ForegroundMaximized()
+    {
+        var window = GetForegroundWindow();
+        return window == IntPtr.Zero ? null : IsZoomed(window);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool IsZoomed(IntPtr window);
 
     private const int MonitorDefaultToNearest = 2;
 
