@@ -48,7 +48,7 @@ public sealed class IndexRunner(
             var walk = planner.Begin(rootPath, mode, hints);
             var nested = RootNesting.Inside(rootPath, (knownRoots ?? roots.Select(r => r.Path).ToList()).Select(p => Path.GetFullPath(p).TrimEnd('\\')));
             var scanned = await Task.Run(() => walk.Scan(root, ct, nested), ct);
-            var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath), walk.UnchangedDirectories);
+            var changes = ChangeSet.Diff(scanned, store.Snapshot(rootPath), walk.UnchangedDirectories, walk.FailedDirectories);
             // Files that now belong to a nested root are not deleted here: that root's own pass takes them over.
             changes = changes with { Removed = [.. changes.Removed.Where(p => !RootNesting.UnderAny(p, nested))] };
             c.DirsListed += walk.DirectoriesListed;

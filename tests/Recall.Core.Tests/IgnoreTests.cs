@@ -97,6 +97,15 @@ public class IgnoreTests : IDisposable
     }
 
     [Fact]
+    public void A_malformed_glob_is_skipped_and_the_other_rules_still_apply()
+    {
+        // "[z-a]" is a reversed range: it turns into an invalid regex. One bad line in someone's .gitignore must not abort a scan.
+        var matcher = GitIgnoreMatcher.Parse(@"C:\repo", ["[z-a]", "*.log", "[!]"]);
+        Assert.Equal(MatchResult.Ignored, matcher.Match(@"C:\repo\build.log", isDirectory: false));
+        Assert.Equal(MatchResult.None, matcher.Match(@"C:\repo\readme.md", isDirectory: false));
+    }
+
+    [Fact]
     public void Gitignore_star_pattern_ignores_nested_files()
     {
         var scope = Scope(_tmp, (".gitignore", ["*.txt"]));

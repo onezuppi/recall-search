@@ -119,6 +119,20 @@ public class IncrementalScanTests : IDisposable
         Assert.Equal([P(@"b\gone.md"), P(@"c\gone.md")], changes.Removed.Order());
     }
 
+    [Fact]
+    public void Diff_keeps_the_files_of_a_directory_that_failed_to_list_and_of_everything_below_it()
+    {
+        // A share that dropped mid-scan: its directory could not be listed, so its files were not seen. That is not a deletion.
+        var snapshot = new Dictionary<string, (long, long)>(StringComparer.OrdinalIgnoreCase)
+        {
+            [P(@"share\a.md")] = (1, 1), [P(@"share\deep\b.md")] = (1, 1), [P(@"sharepoint\c.md")] = (1, 1), [P(@"other\gone.md")] = (1, 1),
+        };
+        var failed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { P("share") };
+        var changes = ChangeSet.Diff([], snapshot, null, failed);
+        // "sharepoint" only shares a name prefix with "share": it is a different directory and its file is really gone.
+        Assert.Equal([P(@"other\gone.md"), P(@"sharepoint\c.md")], changes.Removed.Order());
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(8)]

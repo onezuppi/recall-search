@@ -22,10 +22,10 @@ public sealed class RootWatcher : IDisposable
             InternalBufferSize = 64 * 1024,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
         };
-        _watcher.Created += (_, e) => Handle(e.FullPath);
-        _watcher.Changed += (_, e) => Handle(e.FullPath);
+        _watcher.Created += (_, e) => Handle(e.FullPath, newFolderNeedsRescan: true);
+        _watcher.Changed += (_, e) => Handle(e.FullPath, newFolderNeedsRescan: false);
         _watcher.Deleted += (_, e) => _onPath(e.FullPath);
-        _watcher.Renamed += (_, e) => { _onPath(e.OldFullPath); Handle(e.FullPath); };
+        _watcher.Renamed += (_, e) => { _onPath(e.OldFullPath); Handle(e.FullPath, newFolderNeedsRescan: true); };
         _watcher.Error += (_, e) =>
         {
             log.Error($"watcher for {root} failed", e.GetException());
@@ -38,10 +38,13 @@ public sealed class RootWatcher : IDisposable
     /// <summary>Called for the watcher's Error event; also the test seam for simulating a buffer overflow.</summary>
     public void NotifyOverflow() => _onRescan();
 
-    private void Handle(string fullPath)
+    private void Handle(string fullPath, bool newFolderNeedsRescan)
     {
-        if (Directory.Exists(fullPath)) _onRescan();
-        else _onPath(fullPath);
+        if (!Directory.Exists(fullPath)) { _onPath(fullPath); return; }
+        // A folder that appears (created, or moved in) may already hold files that no event describes: walk the root.
+        // A folder that merely "changed" is the parent of a file that was just written. The file has its own event, and
+        // reacting here would walk the whole root for every file saved.
+        if (newFolderNeedsRescan) _onRescan();
     }
 
     public void Dispose() => _watcher.Dispose();

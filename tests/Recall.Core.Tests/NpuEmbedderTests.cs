@@ -51,6 +51,73 @@ public class NpuEmbedderTests
         Assert.NotEqual(Array.IndexOf(vectors[0], 1f), Array.IndexOf(vectors[1], 1f));
     }
 
+    /// <summary>The first reply never comes: the real channel throws TimeoutException and leaves its read pending.</summary>
+    private sealed class StallingServer : ILineChannel
+    {
+        public int Writes;
+        public bool Disposed;
+        public void WriteLine(string line) => Writes++;
+        public string? ReadLine() => throw new TimeoutException("the embedding server did not answer in time");
+        public void Dispose() => Disposed = true;
+    }
+
+    [Fact]
+    public void A_reply_timeout_closes_the_server_and_marks_the_embedder_broken()
+    {
+        var server = new StallingServer();
+        using var embedder = new NpuEmbedder(Spec, server);
+        Assert.False(embedder.IsBroken);
+
+        Assert.Throws<TimeoutException>(() => embedder.Embed(["slow"], EmbedKind.Query));
+
+        // The stale reply would otherwise be read as the answer to the next request, shifting every later vector by one text.
+        Assert.True(server.Disposed);
+        Assert.True(embedder.IsBroken);
+        var again = Assert.Throws<EmbeddingUnavailableException>(() => embedder.Embed(["next"], EmbedKind.Query));
+        Assert.Contains("starts again", again.Message);
+        Assert.Equal(1, server.Writes);
+    }
+
+    [Fact]
+    public void A_server_that_closed_its_output_breaks_the_embedder_too()
+    {
+        var server = new ClosedServer();
+        using var embedder = new NpuEmbedder(Spec, server);
+        Assert.Throws<InvalidDataException>(() => embedder.Embed(["ok"], EmbedKind.Passage)); // the existing contract: a closed server is an error
+        Assert.True(embedder.IsBroken);
+        Assert.True(server.Disposed);
+    }
+
+    private sealed class ClosedServer : ILineChannel
+    {
+        public bool Disposed;
+        public void WriteLine(string line) { }
+        public string? ReadLine() => null;
+        public void Dispose() => Disposed = true;
+    }
+
+    [Fact]
+    public void A_broken_embedder_is_replaced_on_the_next_acquire()
+    {
+        var made = new List<NpuEmbedder>();
+        using var host = new EmbedderHost(Spec.Space, () =>
+        {
+            var e = new NpuEmbedder(Spec, new StallingServer());
+            made.Add(e);
+            return e;
+        }, TimeSpan.FromMinutes(1));
+
+        using (var first = host.Acquire())
+            Assert.Throws<TimeoutException>(() => first.Embedder.Embed(["slow"], EmbedKind.Query));
+        using var second = host.Acquire();
+
+        Assert.Equal(2, made.Count);
+        Assert.NotSame(first_embedder(made), second.Embedder);
+        Assert.Same(made[1], second.Embedder);
+
+        static NpuEmbedder first_embedder(List<NpuEmbedder> list) => list[0];
+    }
+
     [Fact]
     public void Server_error_is_an_exception_with_its_message()
     {

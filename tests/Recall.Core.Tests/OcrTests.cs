@@ -22,11 +22,18 @@ public class OcrTests
         return ms.ToArray();
     }
 
-    [Fact]
+    /// <summary>An engine for English, or a skipped test when the machine (a clean CI runner, for one) has no English OCR pack.</summary>
+    private static WindowsOcr RequireEnglish(int concurrency = 1)
+    {
+        var ocr = new WindowsOcr(["en-US"], concurrency: concurrency);
+        Skip.IfNot(ocr.AvailableLanguages.Any(l => l.StartsWith("en", StringComparison.OrdinalIgnoreCase)), "English OCR language pack is not installed");
+        return ocr;
+    }
+
+    [SkippableFact]
     public async Task Recognizes_rendered_english_digits()
     {
-        var ocr = new WindowsOcr(["en-US", "ru"]);
-        Assert.NotEmpty(ocr.AvailableLanguages);
+        var ocr = RequireEnglish();
         var text = await ocr.RecognizeAsync(Render("Invoice 4821 total"), default);
         Assert.Contains("4821", text);
     }
@@ -47,14 +54,15 @@ public class OcrTests
         await Assert.ThrowsAsync<ExtractException>(() => ocr.RecognizeAsync([1, 2, 3, 4, 5], default));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task ImageExtractor_returns_one_segment_for_a_png_file()
     {
+        var ocr = RequireEnglish();
         var path = Path.Combine(Path.GetTempPath(), "rs-ocr-" + Guid.NewGuid().ToString("N") + ".png");
         try
         {
             File.WriteAllBytes(path, Render("Receipt 9137"));
-            var ex = new ImageExtractor(new WindowsOcr(["en-US"]));
+            var ex = new ImageExtractor(ocr);
             Assert.True(ex.CanHandle(".PNG"));
             Assert.False(ex.CanHandle(".pdf"));
             var r = await ex.ExtractAsync(path, default);
@@ -63,10 +71,10 @@ public class OcrTests
         finally { File.Delete(path); }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Concurrent_calls_on_one_instance_all_succeed()
     {
-        var ocr = new WindowsOcr(["en-US"], concurrency: 3);
+        var ocr = RequireEnglish(concurrency: 3);
         var image = Render("Order 7305 shipped");
         var results = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => Task.Run(() => ocr.RecognizeAsync(image, default))));
         Assert.All(results, t => Assert.Contains("7305", t));

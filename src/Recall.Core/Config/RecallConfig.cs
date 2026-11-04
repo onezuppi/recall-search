@@ -92,17 +92,44 @@ public sealed record RecallConfig(
             []);
     }
 
-    public static RecallConfig Load(string path)
+    /// <summary>
+    /// Reads the file, or returns the defaults when it is missing. A file that cannot be read (a save cut off by a crash, a typo in a hand edit)
+    /// is copied to <c>config.json.bad</c> and the defaults are returned, so the agent still starts and the user can repair the copy.
+    /// </summary>
+    /// <param name="onProblem">Told what went wrong; the agent writes it to its log.</param>
+    public static RecallConfig Load(string path, Action<string>? onProblem = null)
     {
         if (!File.Exists(path)) return CreateDefault();
-        var cfg = JsonSerializer.Deserialize<RecallConfig>(File.ReadAllText(path), Json);
-        return cfg ?? CreateDefault();
+        try
+        {
+            var cfg = JsonSerializer.Deserialize<RecallConfig>(File.ReadAllText(path), Json);
+            return cfg == null ? CreateDefault() : cfg.FillMissing();
+        }
+        catch (JsonException e)
+        {
+            var bad = path + ".bad";
+            try { File.Copy(path, bad, overwrite: true); } catch (IOException) { bad = "(the copy failed)"; }
+            onProblem?.Invoke($"{path} cannot be read ({e.Message}); using the defaults. The file was kept as {bad}.");
+            return CreateDefault();
+        }
     }
 
+    /// <summary>A hand-edited file may leave out whole lists; the code downstream expects them to exist.</summary>
+    private RecallConfig FillMissing() => this with
+    {
+        Roots = (IReadOnlyList<RootFolder>?)Roots ?? [],
+        EnabledGroups = (IReadOnlySet<string>?)EnabledGroups is { Count: > 0 } groups ? groups : CreateDefault().EnabledGroups,
+        GlobalIgnorePatterns = (IReadOnlyList<string>?)GlobalIgnorePatterns ?? [],
+    };
+
+    /// <summary>Writes a temporary file and swaps it in, so a crash or power loss mid-write cannot leave half a file behind.</summary>
     public void Save(string path)
     {
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(this, Json));
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
+        if (File.Exists(path)) File.Replace(temp, path, destinationBackupFileName: null);
+        else File.Move(temp, path);
     }
 }
 

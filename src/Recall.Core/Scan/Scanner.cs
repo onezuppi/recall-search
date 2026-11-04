@@ -58,9 +58,13 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
     private readonly object _sync = new();
     private readonly Dictionary<string, long> _listed = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _reused = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _failed = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string>? _skip;
 
     public ScanStats Stats { get; } = new();
+
+    /// <summary>Directories that could not be listed. Their files were not seen, which does not mean they were deleted.</summary>
+    public IReadOnlySet<string> FailedDirectories => _failed;
 
     /// <summary>Directories whose files were enumerated, with their last-write ticks read before enumeration.</summary>
     public IReadOnlyDictionary<string, long> ListedDirectories => _listed;
@@ -142,7 +146,11 @@ public sealed class Scanner(IgnorePolicy policy, int threads = 1)
 
         FileSystemInfo[] entries;
         try { entries = new DirectoryInfo(dir).EnumerateFileSystemInfos("*", Options).ToArray(); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            lock (_sync) _failed.Add(dir);
+            return;
+        }
         var scope = node.Scope;
         var found = new List<FileRecord>();
         var subdirs = new List<string>();

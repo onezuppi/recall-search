@@ -124,13 +124,21 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
         _log.Info($"watching {root.Path}");
     }
 
+    private readonly RescanQueue _rescans = new();
+
     private void RescanSoon(RootFolder root)
     {
+        // Folder events come in bursts (a copied tree raises one per folder): one waiting pass per root is enough.
+        if (!_rescans.TryQueue(root.Path)) return;
         _ = Task.Run(async () =>
         {
             // Watcher overflow means events were lost, so trust no remembered directory time.
-            try { await IndexAsync([root], ScanMode.Full, CancellationToken.None); }
-            catch (Exception e) { _log.Error($"rescan of {root.Path} failed", e); }
+            try { await IndexAsync([root], ScanMode.Full, CancellationToken.None, started: () => _rescans.Started(root.Path)); }
+            catch (Exception e)
+            {
+                _rescans.Started(root.Path);
+                _log.Error($"rescan of {root.Path} failed", e);
+            }
         });
     }
 
@@ -178,6 +186,7 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     private CancellationToken _shutdown;
     private readonly object _embedGate = new();
     private Task? _embedLoop;
+    private bool _embedRunning; // set and cleared under _embedGate: Task.IsCompleted lags behind the loop's decision to stop
     private bool _embedAgain;
     private DateTime? _embedDoneAt; // UTC end of the last vector run; null until the first one (the start-up backlog) is done
 
@@ -189,7 +198,9 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     {
         lock (_embedGate)
         {
-            if (_embedLoop is { IsCompleted: false }) { _embedAgain = true; return; }
+            // A request made while the loop decides to stop would otherwise land on a loop that is already leaving, and be lost.
+            if (_embedRunning) { _embedAgain = true; return; }
+            _embedRunning = true;
             _embedLoop = Task.Run(async () =>
             {
                 do
@@ -197,29 +208,33 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
                     try
                     {
                         // After the first backlog is done, new files wait for the next slot: the model is in memory only then.
-                        if (_embedDoneAt is { } doneAt)
-                        {
-                            var wait = doneAt + TimeSpan.FromMinutes(_settings!.Config.EmbedIntervalMinutes) - DateTime.UtcNow;
-                            if (wait > TimeSpan.Zero) await Task.Delay(wait, _shutdown);
-                        }
+                        // The interval is read again every few seconds, so lowering it in the settings does not wait for the old one.
+                        for (var left = EmbedSlot.Remaining(_embedDoneAt, _settings!.Config.EmbedIntervalMinutes, DateTime.UtcNow);
+                             left > TimeSpan.Zero;
+                             left = EmbedSlot.Remaining(_embedDoneAt, _settings!.Config.EmbedIntervalMinutes, DateTime.UtcNow))
+                            await Task.Delay(EmbedSlot.NextSleep(left), _shutdown);
                         lock (_embedGate) _embedAgain = false;
                         var r = await _runner!.EmbedPendingAsync(_shutdown);
                         _embedDoneAt = DateTime.UtcNow;
                         if (r.EmbeddedChunks > 0 || r.EmbedError != null) _log.Info($"vectors: {r.EmbeddedChunks} chunk(s){(r.EmbedError != null ? ", error: " + r.EmbedError : "")}");
                     }
-                    catch (OperationCanceledException) { return; }
+                    catch (OperationCanceledException) { lock (_embedGate) _embedRunning = false; return; }
                     catch (Exception e) { _log.Info($"vectors failed: {e.GetType().Name}: {e.Message}"); }
-                    lock (_embedGate) if (!_embedAgain) return;
+                    lock (_embedGate)
+                    {
+                        if (!_embedAgain) { _embedRunning = false; return; }
+                    }
                 } while (true);
             });
         }
     }
 
-    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct, RootHints? hints = null)
+    private async Task IndexAsync(IReadOnlyList<RootFolder> roots, ScanMode mode, CancellationToken ct, RootHints? hints = null, Action? started = null)
     {
         await _indexGate.WaitAsync(ct);
         try
         {
+            started?.Invoke();
             // A root removed while this pass waited for the gate must not come back.
             var current = roots.Where(r => _settings!.IsConfigured(r.Path)).ToList();
             _log.Info($"indexing {current.Count} root(s)");
@@ -293,14 +308,23 @@ public sealed class AgentHost(RecallConfig config, AgentOptions options) : ISett
     void ISettingsEffects.FileTypesChanged(IReadOnlyDictionary<string, string> types)
     {
         _policy!.SetCustomTypes(types);
-        Background("rescan after file type change", () => IndexAsync(_settings!.Config.Roots, ScanMode.Full, CancellationToken.None));
+        RescanAllRootsSoon("rescan after file type change");
+    }
+
+    private const string AllRoots = "*";
+
+    /// <summary>One full pass over every root, however many settings changed while it waited for the gate.</summary>
+    private void RescanAllRootsSoon(string what)
+    {
+        if (!_rescans.TryQueue(AllRoots)) return;
+        Background(what, () => IndexAsync(_settings!.Config.Roots, ScanMode.Full, CancellationToken.None, started: () => _rescans.Started(AllRoots)));
     }
 
     void ISettingsEffects.ExcludesChanged(IReadOnlyList<string> patterns)
     {
         _policy!.SetGlobalPatterns(patterns);
         // A full pass drops files the new patterns exclude and brings back those a removed pattern had hidden.
-        Background("rescan after exclude change", () => IndexAsync(_settings!.Config.Roots, ScanMode.Full, CancellationToken.None));
+        RescanAllRootsSoon("rescan after exclude change");
     }
 
     private async Task RemoveRootFilesAsync(RootFolder root)

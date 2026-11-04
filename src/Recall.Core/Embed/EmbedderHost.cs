@@ -73,6 +73,8 @@ public sealed class EmbedderHost(
             _pendingUnload?.Cancel();
             _pendingUnload = null;
             _releasePending = false;
+            // An embedder whose server stopped answering is dropped here, so the next user gets a fresh one instead of the dead one.
+            if (_embedder is IEmbedderHealth { IsBroken: true }) Unload();
             _embedder ??= factory();
             _leases++;
             return new Lease(this, _embedder);

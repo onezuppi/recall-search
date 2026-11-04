@@ -34,7 +34,7 @@ if (cli.DbPath == null)
 }
 using var instanceGuard = instance;
 
-var config = RecallConfig.Load(configPath);
+var config = RecallConfig.Load(configPath, problem => log.Error(problem));
 if (cli.DbPath == null && !File.Exists(configPath)) config.Save(configPath);
 if (cli.Roots.Count > 0)
     config = config with { Roots = cli.Roots.Select(r => new RootFolder(Path.GetFullPath(r), false)).ToList() };

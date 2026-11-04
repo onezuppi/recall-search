@@ -33,9 +33,11 @@ public sealed class GitIgnoreMatcher
             if (line.Length == 0) continue;
             var anchored = line.Contains('/');
             if (line[0] == '/') line = line[1..];
-            m._rules.Add(new Rule(
-                new Regex(ToRegex(line, anchored), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
-                negated, dirOnly));
+            Regex pattern;
+            // Git itself ignores a line it cannot read, and the file may belong to any repository on the disk: skip the line, not the scan.
+            try { pattern = new Regex(ToRegex(line, anchored), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); }
+            catch (ArgumentException) { continue; }
+            m._rules.Add(new Rule(pattern, negated, dirOnly));
         }
         return m;
     }
