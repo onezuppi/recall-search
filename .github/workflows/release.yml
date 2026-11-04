@@ -17,7 +17,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Test
-        run: dotnet test RecallSearch.sln -c Release
+        run: dotnet test RecallSearch.sln -c Release --logger "trx;LogFileName=tests.trx"
+      - name: Report failed tests
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -Filter tests.trx | ForEach-Object {
+            [xml]$trx = Get-Content $_.FullName
+            $ns = New-Object Xml.XmlNamespaceManager($trx.NameTable)
+            $ns.AddNamespace('t', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
+            foreach ($r in $trx.SelectNodes("//t:UnitTestResult[@outcome='Failed']", $ns)) {
+              $text = ($r.Output.ErrorInfo.Message -replace '\s+', ' ').Trim()
+              if ($text.Length -gt 600) { $text = $text.Substring(0, 600) }
+              Write-Host "::error::$($r.testName) :: $text"
+            }
+          }
       - name: Build the archive
         shell: pwsh
         run: ./scripts/build-release.ps1 -Version ("${{ github.ref_name }}" -replace '^v', '')
