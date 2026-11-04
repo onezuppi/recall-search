@@ -1,19 +1,19 @@
-# История изменений
+# Changelog
 
-Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/). Версии: [SemVer](https://semver.org/lang/ru/).
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions: [SemVer](https://semver.org/).
 
-## [Не выпущено]
+## [Unreleased]
 
 ## [0.1.0]
 
-Первый публичный выпуск.
+First public release.
 
-### Добавлено
+### Added
 
-- Поиск по фрагменту текста (FTS5, триграммы) в PDF, DOCX, XLSX, PPTX, TXT, MD.
-- OCR картинок и скриншотов средствами Windows, включая картинки внутри документов Office.
-- Расширение PowerToys Command Palette с фильтрами `in:`, `type:`, `after:`, `before:`.
-- Слежение за папками, правила исключений (`.gitignore`, `.recallignore`), защита секретов.
-- Поиск по смыслу: модель на процессоре (E5-small) и на NPU AMD (EmbeddingGemma 2), включая картинки.
-- Настройки в Command Palette: устройство, порог похожести, интервал обновления векторов, прогресс индексации.
-- Релизный архив с установщиком без прав администратора.
+- Fragment text search (FTS5, trigrams) in PDF, DOCX, XLSX, PPTX, TXT and MD.
+- OCR of images and screenshots with Windows, including pictures inside Office documents.
+- PowerToys Command Palette extension with the filters `in:`, `type:`, `after:` and `before:`.
+- Folder watching, exclusion rules (`.gitignore`, `.recallignore`) and protection of secrets.
+- Semantic search: a CPU model (E5-small) and an AMD NPU model (EmbeddingGemma 2), including images.
+- Settings in Command Palette: device, similarity threshold, vector update interval and indexing progress.
+- Release archive with an installer that needs no administrator rights.

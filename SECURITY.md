@@ -1,18 +1,18 @@
-# Безопасность
+# Security
 
-## Как сообщить об уязвимости
+## How to report a vulnerability
 
-Не создавайте публичный issue. Откройте [приватное сообщение об уязвимости](https://github.com/onezuppi/recall-search/security/advisories/new) на GitHub. Опишите, что нашли, как воспроизвести и какие последствия.
+Do not open a public issue. Use a [private vulnerability report](https://github.com/onezuppi/recall-search/security/advisories/new) on GitHub. Describe what you found, how to reproduce it and what the impact is.
 
-Автор отвечает, как только сможет. Сроков исправления проект не гарантирует.
+The author replies as soon as possible. The project does not promise fix times.
 
-## Что считается уязвимостью
+## What counts as a vulnerability
 
-- Доступ к индексу или к ответам агента из другой учётной записи.
-- Подмена агента или канала так, что расширение принимает чужой ответ.
-- Чтение файлов из списка секретов (`.pem`, `.key`, `.env`, `.kdbx` и других) или попадание их текста в индекс.
-- Выход за пределы выбранных папок при индексации.
+- Access to the index or to agent answers from another user account.
+- Replacing the agent or the pipe so that the extension accepts a foreign answer.
+- Reading files from the secrets list (`.pem`, `.key`, `.env`, `.kdbx` and others), or their text reaching the index.
+- Indexing files outside the selected folders.
 
-## Модель угроз
+## Threat model
 
-Проект рассчитан на одного пользователя на личном компьютере. Индекс содержит текст ваших документов и не шифруется. Он защищён правами файловой системы профиля. Если к профилю есть доступ у злоумышленника, индекс тоже доступен.
+The project is meant for one user on a personal computer. The index holds the text of your documents and is not encrypted. File system permissions of your profile protect it. An attacker with access to your profile also has access to the index.

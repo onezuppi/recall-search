@@ -1,70 +1,70 @@
-# Разработка
+# Development
 
-## Сборка и тесты
+## Build and test
 
-Нужны .NET SDK 10 и Windows 10 или 11.
+You need the .NET SDK 10 and Windows 10 or 11.
 
 ```powershell
 dotnet build
 dotnet test
 ```
 
-Установка из исходников, без релизного архива:
+Install from source, without the release archive:
 
 ```powershell
 .\scripts\install-agent.ps1
 .\scripts\install-cmdpal.ps1
 ```
 
-`install-cmdpal.ps1` собирает расширение в Debug и регистрирует его. Нужен режим разработчика Windows.
+`install-cmdpal.ps1` builds the extension in Debug and registers it. Windows Developer Mode is required.
 
-## Релизный архив
+## Release archive
 
 ```powershell
 .\scripts\build-release.ps1 -Version 0.1.0
 ```
 
-Результат: `dist\RecallSearch-0.1.0-win-x64.zip` и файл `.sha256`. Архив автономный: SDK и .NET на целевой машине не нужны. GitHub Actions собирает такой же архив по тегу `v*` (см. `.github/workflows/release.yml`).
+The result is `dist\RecallSearch-0.1.0-win-x64.zip` and a `.sha256` file. The archive is self-contained: the target machine needs no SDK and no .NET. GitHub Actions builds the same archive for a `v*` tag (see `.github/workflows/release.yml`).
 
-Выпуск версии:
+To publish a version:
 
-1. Допишите изменения в `CHANGELOG.md`.
-2. Создайте тег: `git tag v0.1.0 && git push origin v0.1.0`.
-3. Дождитесь workflow "Release". Он создаст черновик релиза с архивом. Проверьте его и опубликуйте.
+1. Add the changes to `CHANGELOG.md`.
+2. Create the tag: `git tag v0.1.0 && git push origin v0.1.0`.
+3. Wait for the "Release" workflow. It creates a draft release with the archive. Check the draft and publish it.
 
-## Устройство проекта
+## Project layout
 
-| Часть | Что делает |
+| Part | What it does |
 |---|---|
-| `Recall.Core` | Конфигурация, правила исключений, сканер, извлечение текста, OCR, индекс SQLite, поиск, эмбеддинги. |
-| `Recall.Agent` | Фоновый процесс пользователя. Индексирует папки, следит за изменениями, считает векторы, отвечает на запросы. |
-| `Recall.CmdPal` | Расширение Command Palette. Тонкий клиент: отправляет запрос агенту и показывает результаты. |
-| `Recall.Journal`, `Recall.UsnService` | Необязательная служба журнала изменений NTFS. |
-| `tools/npu-embed-server` | Исходник сервера эмбеддингов для NPU AMD (отдельная сборка). |
+| `Recall.Core` | Configuration, exclusion rules, scanner, text extraction, OCR, SQLite index, search, embeddings. |
+| `Recall.Agent` | Background process of the user. Indexes folders, watches changes, computes vectors, answers queries. |
+| `Recall.CmdPal` | Command Palette extension. A thin client: it sends a query to the agent and shows the results. |
+| `Recall.Journal`, `Recall.UsnService` | Optional NTFS change-journal service. |
+| `tools/npu-embed-server` | Source of the embedding server for the AMD NPU (built separately). |
 
-### Агент
+### Agent
 
-Агент запускается под вашей учётной записью. На старте он открывает индекс и именованный канал, включает слежение за папками с признаком `watched` и запускает первый проход по корневым папкам.
+The agent runs under your account. At start it opens the index and the named pipe, turns on watching for folders marked `watched` and starts the first pass over the root folders.
 
-Файл читается и хешируется только если он новый или изменился (имя, размер, время записи). Одинаковое содержимое в разных местах извлекается один раз. Изменения в наблюдаемых папках агент собирает с задержкой около двух секунд.
+The agent reads and hashes a file only if it is new or changed (name, size, write time). Identical content in different places is extracted once. It collects changes in watched folders with a delay of about two seconds.
 
-Векторы считаются в отдельном фоновом цикле, не блокируя OCR и новые файлы. После первого прохода цикл просыпается раз в 20 минут (настраивается), загружает модель, считает новое и выгружает модель.
+Vectors are computed in a separate background loop, so they never block OCR or new files. After the first pass the loop wakes every 20 minutes (configurable), loads the model, embeds the new data and unloads the model.
 
-### Индекс
+### Index
 
-SQLite с FTS5 и триграммным токенизатором: находятся и части слов. Порядок результатов: точные фразы, потом файлы со всеми фрагментами (bm25), потом совпадения по имени файла. Векторы лежат в таблице `embeddings` рядом.
+SQLite with FTS5 and a trigram tokenizer, so parts of words are found. Result order: exact phrases, then files that contain all fragments (bm25), then file name matches. Vectors live in the `embeddings` table next to it.
 
-### Расширение Command Palette
+### Command Palette extension
 
-Расширение отправляет агенту запрос по каналу `RecallSearch.<SID>` и показывает попадания: имя, фрагмент с подсветкой, значок, миниатюру. Действия: открыть файл, показать в папке, скопировать путь и текст. Расширение доверяет только агенту из `%LOCALAPPDATA%\Programs\RecallSearch`.
+The extension sends a query to the agent over the pipe `RecallSearch.<SID>` and shows the hits: name, highlighted snippet, icon and thumbnail. Actions: open the file, show in folder, copy the path and the text. The extension trusts only the agent in `%LOCALAPPDATA%\Programs\RecallSearch`.
 
-## Замеры и планы
+## Measurements and plans
 
-- [Дорожная карта](roadmap.md)
-- [Замеры первого плана](benchmarks/2026-11-plan1.md)
-- [Эмбеддинги на CPU](benchmarks/2026-11-plan2-embeddings.md)
-- [Gemma на NPU против E5](benchmarks/2026-11-gemma-vs-e5.md)
-- [Быстрый первый проход](benchmarks/2026-11-fast-scan.md)
-- [Поиск на больших индексах](benchmarks/2026-11-search-at-scale.md)
-- [Исследование: запуск моделей на NPU](research/2026-11-npu-runtime.md)
-- [Спецификация](superpowers/specs/2026-11-03-recall-search-design.md)
+- [Roadmap](roadmap.md)
+- [First plan measurements](benchmarks/2026-11-plan1.md)
+- [Embeddings on the CPU](benchmarks/2026-11-plan2-embeddings.md)
+- [Gemma on the NPU against E5](benchmarks/2026-11-gemma-vs-e5.md)
+- [Fast first pass](benchmarks/2026-11-fast-scan.md)
+- [Search on large indexes](benchmarks/2026-11-search-at-scale.md)
+- [Research: running models on the NPU](research/2026-11-npu-runtime.md)
+- [Specification](superpowers/specs/2026-11-03-recall-search-design.md)

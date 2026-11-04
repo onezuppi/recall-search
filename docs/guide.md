@@ -1,54 +1,54 @@
-# Руководство пользователя
+# User guide
 
-Подробности о поиске, правилах исключений, конфигурации и необязательных службах. Установка описана в [README](../README.md).
+Details about search, exclusion rules, configuration and the optional services. For installation, see the [README](../README.md).
 
-## Как искать
+## How to search
 
-Откройте Command Palette и введите запрос. Минимум три символа.
+Open Command Palette and type a query. Use at least three characters.
 
-| Запрос | Что находит |
+| Query | What it finds |
 |---|---|
-| `счёт 4521` | Файлы, где есть оба фрагмента. |
-| `"оплата по договору"` | Файлы с этой точной фразой. |
-| `договор in:Downloads` | Только файлы, путь которых содержит `Downloads`. |
-| `накладная type:pdf` | Только PDF. Работает расширение (`pdf`, `.png`) или группа (`images`, `office`, `text`). |
-| `пароль after:2026-05` | Файлы, изменённые с 1 мая 2026. |
-| `отчёт before:2026` | Файлы, изменённые до 1 января 2026. |
-| `type:png "код подтверждения" after:2026-05-14` | Фильтры и фразы можно сочетать. |
+| `invoice 4521` | Files that contain both fragments. |
+| `"payment under the contract"` | Files with this exact phrase. |
+| `contract in:Downloads` | Only files whose path contains `Downloads`. |
+| `waybill type:pdf` | Only PDFs. An extension (`pdf`, `.png`) or a group (`images`, `office`, `text`) works. |
+| `password after:2026-05` | Files changed since 1 May 2026. |
+| `report before:2026` | Files changed before 1 January 2026. |
+| `type:png "confirmation code" after:2026-05-14` | Filters and phrases combine. |
 
-Правила:
+Rules:
 
-- `after:` и `before:` принимают `2026`, `2026-05` и `2026-05-14`. Берётся начало периода.
-- Значение фильтра с пробелом берите в кавычки: `in:"Telegram Desktop"`.
-- Слова без кавычек ищутся как отдельные фрагменты, все сразу. Кавычки задают точную фразу.
-- Регистр не важен.
+- `after:` and `before:` accept `2026`, `2026-05` and `2026-05-14`. The search uses the start of the period.
+- Put a filter value with a space in quotes: `in:"Telegram Desktop"`.
+- Words without quotes are searched as separate fragments, all at once. Quotes make an exact phrase.
+- Case does not matter.
 
-## Что индексируется
+## What is indexed
 
-| Группа | Расширения |
+| Group | Extensions |
 |---|---|
 | `images` | jpg, jpeg, png, webp, bmp, gif, tif, tiff, heic |
 | `pdf` | pdf |
 | `office` | docx, xlsx, pptx |
 | `text` | txt, md |
 
-Для HEIC нужно расширение Windows HEIF. Исходный код, архивы, видео и аудио не индексируются.
+HEIC needs the Windows HEIF extension. Source code, archives, video and audio are not indexed.
 
-## Правила исключений
+## Exclusion rules
 
-Правила применяются по порядку. Папка, которая исключена, не обходится вообще.
+The rules apply in order. An excluded folder is not walked at all.
 
-1. **Системные места, всегда.** Windows, Program Files, ProgramData, AppData, временные папки, корзина, `System Volume Information` и профили других пользователей.
-2. **Ссылки.** Точки повторной обработки (junction, symlink) не обходятся.
-3. **Облачные файлы.** Файлы OneDrive, которых нет на диске, не открываются и не скачиваются. Они попадут в индекс, когда станут локальными.
-4. **Встроенные имена папок.** `node_modules`, `.git`, `bin`, `obj`, `dist`, `build`, `target`, `vendor`, `.venv`, `venv`, `__pycache__`, `.idea`, `.vs`, `.vscode`, `.cache` и другие. Полный список лежит в [BuiltInRules.cs](../src/Recall.Core/Ignore/BuiltInRules.cs).
-5. **`.gitignore`.** Файлы `.gitignore` учитываются везде, где они есть, по правилам git: вложенные файлы, отрицания, шаблоны папок.
-6. **`.recallignore`.** Положите такой файл в любую папку. Синтаксис как у `.gitignore`. Правила действуют на эту папку и всё ниже.
-7. **Глобальные шаблоны.** Поле `globalIgnorePatterns` в `%LOCALAPPDATA%\RecallSearch\config.json`. Синтаксис как у `.gitignore`. Можно указать и полный путь.
-8. **Секреты, всегда.** Файлы `.pem`, `.key`, `.pfx`, `.p12`, `.mafile`, `.kdbx`, `.ppk`, `.env`, `.env.*` и `id_rsa*` не читаются и не попадают в индекс. Это нельзя отключить.
-9. **Размер.** Текстовые файлы больше 2 МБ и картинки больше 50 МБ пропускаются. Значения задают `maxTextBytes` и `maxImageBytes` в конфигурации. Лимит 50 МБ действует также на PDF и файлы Office.
+1. **System locations, always.** Windows, Program Files, ProgramData, AppData, temporary folders, the recycle bin, `System Volume Information` and the profiles of other users.
+2. **Links.** Reparse points (junctions and symlinks) are not followed.
+3. **Cloud files.** OneDrive files that are not on the disk are not opened or downloaded. They enter the index when they become local.
+4. **Built-in folder names.** `node_modules`, `.git`, `bin`, `obj`, `dist`, `build`, `target`, `vendor`, `.venv`, `venv`, `__pycache__`, `.idea`, `.vs`, `.vscode`, `.cache` and others. The full list is in [BuiltInRules.cs](../src/Recall.Core/Ignore/BuiltInRules.cs).
+5. **`.gitignore`.** Every `.gitignore` is honored wherever it exists, with git rules: nested files, negations and folder patterns.
+6. **`.recallignore`.** Put this file in any folder. The syntax is the same as `.gitignore`. The rules apply to that folder and everything below it.
+7. **Global patterns.** The `globalIgnorePatterns` field in `%LOCALAPPDATA%\RecallSearch\config.json`. The syntax is the same as `.gitignore`. A full path also works.
+8. **Secrets, always.** Files `.pem`, `.key`, `.pfx`, `.p12`, `.mafile`, `.kdbx`, `.ppk`, `.env`, `.env.*` and `id_rsa*` are never read and never enter the index. You cannot turn this off.
+9. **Size.** Text files above 2 MB and images above 50 MB are skipped. The values `maxTextBytes` and `maxImageBytes` in the configuration set the limits. The 50 MB limit also applies to PDF and Office files.
 
-Пример `globalIgnorePatterns`:
+An example of `globalIgnorePatterns`:
 
 ```json
 "globalIgnorePatterns": [
@@ -57,104 +57,105 @@
 ]
 ```
 
-После правки конфигурации перезапустите агента.
+Restart the agent after you edit the configuration.
 
-## Конфигурация
+## Configuration
 
-Файл `%LOCALAPPDATA%\RecallSearch\config.json` агент создаёт при первом запуске. Папки определяются через известные папки Windows, пути не зашиты в код. По умолчанию это:
+The agent creates `%LOCALAPPDATA%\RecallSearch\config.json` on the first start. Folders come from the known folders of Windows, so no path is hard-coded. The defaults are:
 
-- под слежением: Рабочий стол, Загрузки, Снимки экрана, а также папки ShareX и Telegram Desktop, если они есть;
-- без слежения (только проход при старте): Документы, Изображения, Пленка, Видео\Captures.
+- watched: Desktop, Downloads, Screenshots, and the ShareX and Telegram Desktop folders if they exist;
+- not watched (walked only at start): Documents, Pictures, Camera Roll, Videos\Captures.
 
-Поля файла:
+Fields of the file:
 
-| Поле | Значение |
+| Field | Meaning |
 |---|---|
-| `roots` | Список папок: `path`, `watched`, `name`. |
-| `enabledGroups` | Включённые группы типов: `images`, `pdf`, `office`, `text`. |
-| `globalIgnorePatterns` | Глобальные шаблоны исключений. |
-| `maxTextBytes`, `maxImageBytes` | Лимиты размера в байтах. |
-| `ocrLanguages` | Языки OCR. Нужны установленные языковые пакеты Windows. |
+| `roots` | List of folders: `path`, `watched`, `name`. |
+| `enabledGroups` | Enabled type groups: `images`, `pdf`, `office`, `text`. |
+| `globalIgnorePatterns` | Global exclusion patterns. |
+| `maxTextBytes`, `maxImageBytes` | Size limits in bytes. |
+| `ocrLanguages` | OCR languages. The Windows language packs must be installed. |
 
-## Приватность и безопасность
+## Privacy and security
 
-- Ничего не уходит с компьютера. В проекте нет сетевых запросов, телеметрии и облачных сервисов.
-- Агент и расширение общаются по именованному каналу `RecallSearch.<SID пользователя>`. Доступ есть только у вашей учётной записи. Сетевые входы запрещены явно.
-- Канал создаётся с флагом `FirstPipeInstance`. Если имя уже занял чужой процесс, агент не стартует.
-- Клиент проверяет сервер: канал должен принадлежать процессу `Recall.Agent.exe` из папки установки, который работает под вашей учётной записью. Подмену канала расширение отклоняет.
-- Запрос ограничен по размеру. Ответ содержит только пути, фрагменты текста и метаданные.
-- Секреты по списку из раздела "Правила исключений" не читаются и не показываются.
-- Индекс содержит текст ваших документов. Он лежит в профиле пользователя и защищён правами файловой системы. Шифрования самого файла нет.
+- Nothing leaves your computer. The only network request is the download of the `cpu` model, and only if you select it.
+- The agent and the extension talk over the named pipe `RecallSearch.<user SID>`. Only your account can use it. Network logons are denied explicitly.
+- The pipe is created with the `FirstPipeInstance` flag. If a foreign process already holds the name, the agent does not start.
+- The client verifies the server: the pipe must belong to the `Recall.Agent.exe` process from the install folder, running under your account. The extension rejects a replaced pipe.
+- A query has a size limit. A reply holds only paths, text snippets and metadata.
+- Secrets from the list in "Exclusion rules" are never read or shown.
+- The index holds the text of your documents. It lives in your user profile under file system permissions. The file itself is not encrypted.
 
-## Где что лежит
+## Where things are
 
-| Что | Где |
+| What | Where |
 |---|---|
-| Конфигурация | `%LOCALAPPDATA%\RecallSearch\config.json` |
-| Индекс | `%LOCALAPPDATA%\RecallSearch\index.db` (рядом файлы `-wal` и `-shm`) |
-| Журнал | `%LOCALAPPDATA%\RecallSearch\recall.log` |
-| Установленный агент | `%LOCALAPPDATA%\Programs\RecallSearch` |
+| Configuration | `%LOCALAPPDATA%\RecallSearch\config.json` |
+| Index | `%LOCALAPPDATA%\RecallSearch\index.db` (with `-wal` and `-shm` files next to it) |
+| Log | `%LOCALAPPDATA%\RecallSearch\recall.log` |
+| Installed agent | `%LOCALAPPDATA%\Programs\RecallSearch` |
 
-Журнал переходит в `recall.log.1`, когда достигает 5 МБ.
+The log rolls over to `recall.log.1` when it reaches 5 MB.
 
-Чтобы очистить индекс, остановите агента и удалите `index.db`, `index.db-wal` и `index.db-shm`. При следующем запуске агент построит индекс заново.
+To clear the index, stop the agent and delete `index.db`, `index.db-wal` and `index.db-shm`. The agent rebuilds the index at the next start.
 
-## Запуск без установки
+## Run without installing
 
-Агент умеет сделать один проход и выйти. Это удобно для проверки и замеров:
+The agent can make one pass and exit. This is handy for checks and measurements:
 
 ```powershell
 Recall.Agent.exe --once --db C:\temp\test.db --root D:\docs --workers 4
 ```
 
-- `--once` - один проход и выход.
-- `--root ПУТЬ` - корневая папка вместо настроенных (параметр можно повторять).
-- `--db ПУТЬ` - другой файл индекса. С этим параметром агент не занимает защиту от второго экземпляра, поэтому установленный агент продолжает работать.
-- `--workers N` - сколько файлов обрабатывать одновременно.
+- `--once` - one pass, then exit.
+- `--root PATH` - a root folder instead of the configured ones (repeat the option for more folders).
+- `--db PATH` - another index file. With this option the agent does not take the single-instance guard, so the installed agent keeps running.
+- `--workers N` - how many files to process at the same time.
 
-Глобальные шаблоны исключений берутся из `config.json` и в этом режиме.
+The global exclusion patterns come from `config.json` in this mode too.
 
-> Скрипты двух следующих разделов лежат в папке `scripts` репозитория, в релизный архив они не входят. Склонируйте репозиторий, чтобы ими пользоваться. Для службы журнала нужен .NET SDK 10.
+> The scripts in the next two sections are in the `scripts` folder of the repository. The release archive does not include them. Clone the repository to use them. The change-journal service also needs the .NET SDK 10.
 
-## Исключение из Defender (по желанию)
-Агент открывает каждый новый или изменённый файл, и Defender проверяет эти чтения. Чтобы он не нагружал процессор, добавьте процесс агента в исключения. Запустите в PowerShell от администратора:
+## Defender exclusion (optional)
+
+The agent opens every new or changed file, and Defender scans those reads. To keep Defender from loading the CPU, add the agent process to its exclusions. Run in PowerShell as administrator:
 
 ```powershell
 .\scripts\defender-exclusion.ps1
 ```
 
-Скрипт исключает только процесс `Recall.Agent.exe`, папки не затрагиваются. Убрать исключение: `-Remove`. Скрипт сам ничего не запускается и права не повышает.
+The script excludes only the process `Recall.Agent.exe`. It does not touch folders. To remove the exclusion, pass `-Remove`. The script starts nothing by itself and does not raise its rights.
 
-## Служба журнала изменений (по желанию, один раз от администратора)
-Без неё агент пропускает неизменённые папки по времени записи каталога и раз в неделю обходит всё. Служба добавляет точную информацию о файлах, перезаписанных на месте, пока агент был выключен, и недельный полный обход становится не нужен. Установка в PowerShell от администратора:
+## Change-journal service (optional, once, as administrator)
+
+Without it, the agent skips unchanged folders by the write time of the directory and walks everything once a week. The service adds exact information about files overwritten in place while the agent was off, so the weekly full walk is no longer needed. Install it in PowerShell as administrator:
 
 ```powershell
 .\scripts\install-usn-service.ps1
 ```
 
-Служба работает от SYSTEM, читает журнал NTFS и ничего не хранит. Пользователь получает только пути в папках, которые он сам может открыть. Удалить: `-Remove`. После установки перезапустите агент.
+The service runs as SYSTEM, reads the NTFS journal and stores nothing. A user gets only paths in folders that user can open anyway. To remove it, pass `-Remove`. Restart the agent after the installation.
 
+## Semantic search
 
-## Поиск по смыслу
+Semantic search finds files by meaning, not by letters: the query "terminal window" finds a screenshot of a terminal. It works for text and for images. It is off by default.
 
-Поиск по смыслу находит файлы по значению, а не по буквам: запрос "окно терминала" найдёт скриншот терминала. Работает и для текста, и для картинок. По умолчанию выключен.
+Turn it on in the extension settings, card "Semantic search device":
 
-Включается в настройках расширения, карточка "Semantic search device":
-
-| Значение | Что это |
+| Value | What it is |
 |---|---|
-| `off` | Только текстовый поиск. |
-| `cpu` | Модель multilingual-e5-small (около 123 МБ). Работает на любом процессоре. Порог похожести по умолчанию 0.84. |
-| `npu` | EmbeddingGemma 2 на NPU AMD. Нужны отдельный сервер и пакет модели, см. [tools/npu-embed-server](../tools/npu-embed-server/README.md). Порог по умолчанию 0.65. Считает и картинки. |
+| `off` | Text search only. |
+| `cpu` | The multilingual-e5-small model (about 123 MB). It runs on any processor. The default similarity threshold is 0.84. |
+| `npu` | EmbeddingGemma 2 on an AMD NPU. It needs a separate server and a model bundle, see [tools/npu-embed-server](../tools/npu-embed-server/README.md). The default threshold is 0.65. It embeds images too. |
 
-После смены устройства перезапустите агента. Модель `cpu` агент скачивает с Hugging Face в `%LOCALAPPDATA%\RecallSearch\models` с проверкой SHA-256. Это единственный сетевой запрос в проекте, и он происходит только если вы выбрали `cpu`.
+Restart the agent after you change the device. The agent downloads the `cpu` model from Hugging Face into `%LOCALAPPDATA%\RecallSearch\models` and verifies its SHA-256. This is the only network request in the project, and it happens only if you select `cpu`.
 
-Как это работает:
+How it works:
 
-- Модель загружается на время расчёта векторов и ответа на запрос, потом выгружается (через 60 секунд простоя).
-- Новые векторы считаются в фоне раз в 20 минут, если есть новые данные. Интервал меняется в настройках.
-- Первый проход по большой коллекции занимает часы. Прогресс виден в карточке "Indexing progress".
-- Порог похожести меняется в настройках, карточка "Semantic search threshold". Чем выше число, тем меньше и надёжнее смысловых результатов.
-- Если модель не готова, поиск работает только по тексту.
+- The model loads while vectors are computed and while a query is answered. It unloads after 60 seconds of idle time.
+- New vectors are computed in the background every 20 minutes when there is new data. You can change the interval in the settings.
+- The first pass over a large collection takes hours. The progress is visible in the card "Indexing progress".
+- The similarity threshold is in the settings, card "Semantic search threshold". The higher the number, the fewer and more reliable the semantic results.
+- If the model is not ready, search works with text only.
 
-Цифры скорости и памяти: [замеры эмбеддингов](benchmarks/2026-11-plan2-embeddings.md) и [Gemma против E5](benchmarks/2026-11-gemma-vs-e5.md).
+Speed and memory figures: [embedding measurements](benchmarks/2026-11-plan2-embeddings.md) and [Gemma against E5](benchmarks/2026-11-gemma-vs-e5.md).

@@ -1,48 +1,48 @@
-# Сервер эмбеддингов для NPU
+# Embedding server for the NPU
 
-`windows_embed_server.exe` держит модель EmbeddingGemma 2 на NPU AMD загруженной и отвечает на строки из stdin. Агент Recall Search запускает его как дочерний процесс на время индексации и закрывает, когда работа закончена или стоит на паузе. Закрытие stdin завершает процесс и освобождает NPU и память.
+`windows_embed_server.exe` keeps the EmbeddingGemma 2 model loaded on the AMD NPU. It answers lines from stdin. The Recall Search agent starts it as a child process for the time of indexing. The agent closes it when the work is done or paused. Closing stdin ends the process and frees the NPU and memory.
 
-Модель и порт Taconite для Windows не входят в этот репозиторий. Здесь только пример на Rust, который собирается вместе с ними.
+The model and the Taconite port for Windows are not part of this repository. This repository holds only a Rust example that builds together with them.
 
-## Сборка
+## Build
 
-Нужны: порт `embeddinggemma2-windows-taconite`, заголовки XRT и Visual Studio Build Tools. Пути задаются переменными окружения, в скрипте ничего не зашито.
+You need the `embeddinggemma2-windows-taconite` port, the XRT headers and Visual Studio Build Tools. Environment variables set the paths. The script hardcodes nothing.
 
 ```cmd
-set TACONITE_DIR=<папка embeddinggemma2-windows-taconite>
+set TACONITE_DIR=<folder of embeddinggemma2-windows-taconite>
 set XRT_INCLUDE=<папка заголовков XRT, runtime_src\core\include>
-set VCVARS=<путь к vcvars64.bat>
-set TARGET_DIR=<необязательно: куда cargo кладёт результат>
+set VCVARS=<path to vcvars64.bat>
+set TARGET_DIR=<optional: where cargo puts the result>
 tools\npu-embed-server\build.cmd
 ```
 
-Скрипт копирует `windows_embed_server.rs` в `examples` крейта `taconite-embeddinggemma2` и собирает пример. Результат: `<TARGET_DIR>\release\examples\windows_embed_server.exe`.
+The script copies `windows_embed_server.rs` into `examples` of the `taconite-embeddinggemma2` crate and builds the example. The result is `<TARGET_DIR>\release\examples\windows_embed_server.exe`.
 
-## Включение в Recall Search
+## Enable in Recall Search
 
-В `%LOCALAPPDATA%\RecallSearch\config.json`:
+In `%LOCALAPPDATA%\RecallSearch\config.json`:
 
 ```json
 {
   "embeddingModel": "embeddinggemma2-npu",
   "embeddingDevice": "Npu",
-  "npuServerPath": "<полный путь к windows_embed_server.exe>",
-  "npuBundlePath": "<папка модели embeddinggemma2-model>"
+  "npuServerPath": "<full path to windows_embed_server.exe>",
+  "npuBundlePath": "<folder of the embeddinggemma2-model bundle>"
 }
 ```
 
-Если пути неверны или сервер не запускается, индексация и поиск работают как раньше, только по тексту. Порог похожести для этой модели 0.65 (грубая калибровка, см. `docs/benchmarks/2026-11-gemma-vs-e5.md`). Его можно изменить в настройках расширения.
+If the paths are wrong or the server does not start, indexing and search work as before, on text only. The similarity threshold for this model is 0.65 (a rough calibration, see `docs/benchmarks/2026-11-gemma-vs-e5.md`). You can change it in the extension settings.
 
-## Протокол
+## Protocol
 
-Одна строка в каждую сторону, UTF-8.
+One line in each direction, UTF-8.
 
-- stderr, один раз после загрузки: `READY dim=768 model_load_ms=<n>`.
-- Запрос: `<prompt>\t<text>`. Prompt: `SearchQuery` для запросов, `Document` для текста документов, `-` без prompt. В тексте `\\`, `\n`, `\t`, `\r` означают обратную косую, перевод строки, табуляцию и возврат каретки.
-- Ответ: `V <f32> <f32> ...` (768 чисел) или `ERR\t<сообщение>`.
+- stderr, once after loading: `READY dim=768 model_load_ms=<n>`.
+- Request: `<prompt>\t<text>`. Prompt is `SearchQuery` for queries, `Document` for document text, and `-` for no prompt. In the text, `\\`, `\n`, `\t` and `\r` mean backslash, line feed, tab and carriage return.
+- Response: `V <f32> <f32> ...` (768 numbers) or `ERR\t<message>`.
 
-Клиент: `src/Recall.Core/Embed/NpuEmbedder.cs`, `NpuProtocol.cs`, `ProcessLineChannel.cs`.
+Client: `src/Recall.Core/Embed/NpuEmbedder.cs`, `NpuProtocol.cs`, `ProcessLineChannel.cs`.
 
-## Что не сделано
+## Not done
 
-Картинки передаются по одной: запрос с приглашением `@image` и путём к файлу (JPEG или PNG), ответ тот же `V ...`. Группы по 3 картинки (`windows_folder_pipe`) не используются, это возможное ускорение.
+Images go one at a time. The request has the prompt `@image` and a file path (JPEG or PNG). The response is the same `V ...`. Groups of 3 images (`windows_folder_pipe`) are not used. They are a possible speedup.

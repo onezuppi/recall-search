@@ -1,7 +1,7 @@
-## Что меняется
+## What changes
 
-## Как проверено
+## How it was checked
 
-- [ ] `dotnet test` проходит
-- [ ] Новое поведение покрыто тестом
-- [ ] Документация и `CHANGELOG.md` обновлены, если менялось поведение
+- [ ] `dotnet test` passes
+- [ ] A test covers the new behavior
+- [ ] Documentation and `CHANGELOG.md` are updated if the behavior changed

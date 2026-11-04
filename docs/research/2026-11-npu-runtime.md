@@ -1,48 +1,48 @@
-# Выбор рантайма для эмбеддингов на NPU, 2026-11-04
+# Choosing a runtime for embeddings on the NPU, 2026-11-04
 
-Решение: для NPU AMD остаемся на Taconite (EmbeddingGemma 2 через `windows_embed_server`). FastFlowLM (FLM) не берем как основу.
-Основной путь для остальных пользователей не меняется: ONNX Runtime на CPU (E5-small), NPU подключается как необязательный провайдер.
+Decision: for the AMD NPU we stay on Taconite (EmbeddingGemma 2 through `windows_embed_server`). We do not adopt FastFlowLM (FLM) as the base.
+The main path for other users does not change. It is ONNX Runtime on CPU (E5-small). The NPU is an optional provider.
 
-Машина замеров: AMD Ryzen AI 9 HX 370 (NPU2), драйвер NPU 32.0.20102.4480, Windows 11.
+Measurement machine: AMD Ryzen AI 9 HX 370 (NPU2), NPU driver 32.0.20102.4480, Windows 11.
 
-## Почему не FLM
+## Why not FLM
 
-| Ограничение | Что установлено | Источник |
+| Limitation | What we found | Source |
 |---|---|---|
-| Одна модель эмбеддингов | В организации FastFlowLM на Hugging Face 64 модели, эмбеддинг только `Embedding-Gemma-300M-NPU2`. В `flm list` на машине тоже один: `embed-gemma:300m`. Пользовательские загрузки с форматом NPU2 дублируют те же LLM и ту же Gemma | HF API, `flm list` |
-| Нет эмбеддингов картинок | Картинки FLM понимает только через чат-модели (Qwen-VL, MiniCPM-V, Gemma 4): они отвечают текстом, вектора в одном пространстве с текстом нет | `flm list`, релиз v1.0.11 |
-| Нельзя добавить E5 и свои модели | Публичного руководства по добавлению моделей в FLM нет. Ядра закрытые (бесплатны для использования и распространения без изменений). Dev-сборки FastFlow-SDK для Windows существуют, документации по конвертации не найдено | README ROCm/FastFlowLM, ROCm/FastFlow-SDK |
-| Эмбеддинг не запускается отдельно | `flm serve embed-gemma:300m` отвечает "Unsupported model family or non-llm". Эмбеддинги работают только как дополнение к чат-модели флагом `--embed 1`, поэтому нужна еще и LLM (Llama 3.2 1B, около 1,2 ГБ) | проверено на машине |
-| Установка | MSI не подписан и ставится на всю машину, нужны права администратора (при запуске без них код 1603) | проверено на машине |
+| Only one embedding model | The FastFlowLM organization on Hugging Face has 64 models. The only embedding model is `Embedding-Gemma-300M-NPU2`. `flm list` on the machine also shows one: `embed-gemma:300m`. User uploads in the NPU2 format repeat the same LLMs and the same Gemma. | HF API, `flm list` |
+| No image embeddings | FLM handles images only through chat models (Qwen-VL, MiniCPM-V, Gemma 4). They answer with text. There are no vectors in the same space as text. | `flm list`, release v1.0.11 |
+| We cannot add E5 or our own models | There is no public guide for adding models to FLM. The kernels are closed (free to use and to distribute unchanged). Dev builds of FastFlow-SDK for Windows exist. We found no conversion docs. | README ROCm/FastFlowLM, ROCm/FastFlow-SDK |
+| Embeddings do not run alone | `flm serve embed-gemma:300m` answers "Unsupported model family or non-llm". Embeddings work only as an add-on to a chat model with the flag `--embed 1`. So we also need an LLM (Llama 3.2 1B, about 1.2 GB). | checked on the machine |
+| Installation | The MSI is unsigned and installs machine-wide. It needs administrator rights (exit code 1603 without them). | checked on the machine |
 
-FLM не проверялся до конца (скорость и русский язык `embed-gemma:300m` не измерены) и не будет: решение принято по ограничениям выше. Модели FLM с машины удалены.
+We did not test FLM to the end (speed and Russian quality of `embed-gemma:300m` are not measured). We will not test it. The decision rests on the limitations above. We removed the FLM models from the machine.
 
-## Почему Taconite
+## Why Taconite
 
-- Единственный путь на этой машине, который дает текст и картинки в одном пространстве (Gemma 2, 768 измерений, бандл `embeddinggemma2-model`, 1,07 ГБ).
-- Уже работает: провайдер `TaconiteNpuProvider` в агенте, сервер `tools/npu-embed-server`, пути из конфига.
-- Замеры (docs/benchmarks/2026-11-plan2-embeddings.md): около 167 мс на фрагмент текста, около 6 фрагментов в секунду, около 0,85-1,5 с на картинку, около 2 ГБ памяти. CPU с E5-small: около 22 фрагментов в секунду. Модели разные, прямого сравнения "NPU против CPU" на одной модели нет.
-- Точность по карточке автора: косинус с эталоном не ниже 0,999.
+- It is the only path on this machine that gives text and images in one space (Gemma 2, 768 dimensions, bundle `embeddinggemma2-model`, 1.07 GB).
+- It already works. The agent has the `TaconiteNpuProvider` provider, the server is `tools/npu-embed-server`, and paths come from the config.
+- Measurements (docs/benchmarks/2026-11-plan2-embeddings.md): about 167 ms per text fragment, about 6 fragments per second, about 0.85-1.5 s per image, about 2 GB of memory. CPU with E5-small: about 22 fragments per second. The models differ. We have no direct "NPU versus CPU" comparison on one model.
+- Accuracy according to the author's card: cosine with the reference at least 0.999.
 
-## Ограничения Taconite
+## Taconite limitations
 
-- Только AMD NPU2 (Strix, Strix Halo, Krackan). На Phoenix и Hawk Point не загрузится.
-- Экспериментальный Windows-порт: сборка под MSVC и локальный `xrt_coreutil.lib`, сформированный из экспортов `xrt_coreutil.dll` драйвера. Поддержки автора под Windows нет, обновление драйвера может сломать.
-- Для пользователя: драйвер AMD, готовый `windows_embed_server.exe`, Python с Pillow для картинок, бандл 1 ГБ. Поэтому провайдер необязательный, по умолчанию выключен.
+- AMD NPU2 only (Strix, Strix Halo, Krackan). It does not load on Phoenix and Hawk Point.
+- It is an experimental Windows port. It builds with MSVC and a local `xrt_coreutil.lib` made from the exports of the driver's `xrt_coreutil.dll`. The author gives no Windows support. A driver update can break it.
+- The user needs an AMD driver, a ready `windows_embed_server.exe`, Python with Pillow for images, and a 1 GB bundle. So the provider is optional and off by default.
 
-## Другие найденные варианты (не выбраны)
+## Other options we found (not chosen)
 
-| Вариант | Заметка |
+| Option | Note |
 |---|---|
-| `amd/embeddinggemma-300m_npu_rai_1.8.0_npu_4K` | Gemma-300M от AMD для Ryzen AI Software (Quark, ONNX Runtime). Нужен SDK, в карточке язык "английский", лицензия противоречива |
-| `amd/NPU-Nomic-embed-text-v1.5-ryzen-strix-cpp` | Пример на C++ для английской модели, инструкция для Phoenix и Hawk Point |
-| `peonist-ai/halogen-npu-*` (Qwen3-Embedding, EmbeddingGemma 2) | Только Strix Halo и только в контейнере halogen-flash-server |
-| `ItsOkayNow/bge-XDNA1-NPUE-PACKS`, `all-MiniLM-L6-v2-XDNA1-NPUE-PACKS` | Для XDNA1, на HX 370 не работают |
-| `seminse/multilingual-e5-small-openvino-npu-static` | E5-small для Intel NPU через OpenVINO. Замер автора на Core Ultra 9: iGPU 19,4 мс, NPU 29,1 мс, CPU 49 мс на текст. Не проверялось у нас |
-| IRON (`amd/IRON`) | Официальный путь портирования своей модели (раздел "Add a model" в CONTRIBUTING.md), Linux. Есть класс `Encoder`, готового BERT нет |
+| `amd/embeddinggemma-300m_npu_rai_1.8.0_npu_4K` | Gemma-300M from AMD for Ryzen AI Software (Quark, ONNX Runtime). It needs the SDK. The card lists the language as "English". The license is contradictory. |
+| `amd/NPU-Nomic-embed-text-v1.5-ryzen-strix-cpp` | A C++ example for an English model, with instructions for Phoenix and Hawk Point. |
+| `peonist-ai/halogen-npu-*` (Qwen3-Embedding, EmbeddingGemma 2) | Strix Halo only, and only inside the halogen-flash-server container. |
+| `ItsOkayNow/bge-XDNA1-NPUE-PACKS`, `all-MiniLM-L6-v2-XDNA1-NPUE-PACKS` | For XDNA1. They do not work on the HX 370. |
+| `seminse/multilingual-e5-small-openvino-npu-static` | E5-small for the Intel NPU through OpenVINO. The author's measurement on Core Ultra 9: iGPU 19.4 ms, NPU 29.1 ms, CPU 49 ms per text. We did not test it. |
+| IRON (`amd/IRON`) | The official way to port your own model (section "Add a model" in CONTRIBUTING.md). Linux. It has an `Encoder` class. There is no ready BERT. |
 
-## Остается
+## What remains
 
-- Intel NPU: провайдер OpenVINO с E5-small, замерить на нашем корпусе.
-- Gemma 2 против E5-small на одних запросах, порог схожести для Gemma.
-- Свой экспорт E5 под NPU AMD (Ryzen AI Software с Quark или IRON): только если замер покажет выигрыш.
+- Intel NPU: an OpenVINO provider with E5-small. Measure it on our corpus.
+- Gemma 2 against E5-small on the same queries, and a similarity threshold for Gemma.
+- Our own E5 export for the AMD NPU (Ryzen AI Software with Quark, or IRON). Do it only if a measurement shows a gain.

@@ -1,57 +1,57 @@
-# EmbeddingGemma 2 (NPU) и E5-small (CPU), 2026-11-05
+# EmbeddingGemma 2 (NPU) and E5-small (CPU), 2026-11-05
 
-Замер сделан одной машиной (AMD Ryzen AI 9 HX 370) инструментом `tools/Recall.EmbedEval`. Корпус маленький: 13 Markdown-файлов этого репозитория, 100 фрагментов. Запросы написал разработчик, они лежат в `tools/Recall.EmbedEval/queries.json`: 15 запросов с известным файлом (русские и английские) и 3 бессмысленных. Это грубая оценка, не общий результат.
+The measurement comes from one machine (AMD Ryzen AI 9 HX 370) with the `tools/Recall.EmbedEval` tool. The corpus is small: 13 Markdown files of this repository, 100 chunks. The developer wrote the queries. They are in `tools/Recall.EmbedEval/queries.json`: 15 queries with a known file (Russian and English) and 3 nonsense queries. This is a rough estimate, not a general result.
 
-Запуск:
+Run:
 
 ```cmd
-Recall.EmbedEval --model multilingual-e5-small --corpus <репозиторий>
-Recall.EmbedEval --model embeddinggemma2-npu --corpus <репозиторий> --server <windows_embed_server.exe> --bundle <папка модели>
+Recall.EmbedEval --model multilingual-e5-small --corpus <repository>
+Recall.EmbedEval --model embeddinggemma2-npu --corpus <repository> --server <windows_embed_server.exe> --bundle <model folder>
 ```
 
-## Качество
+## Quality
 
-| Показатель | E5-small, CPU (int8) | EmbeddingGemma 2, NPU |
+| Metric | E5-small, CPU (int8) | EmbeddingGemma 2, NPU |
 |---|---|---|
-| Нужный файл на 1-м месте | 8 из 15 | 12 из 15 |
-| Нужный файл в первой тройке | 11 из 15 | 15 из 15 |
+| Right file at rank 1 | 8 of 15 | 12 of 15 |
+| Right file in the top three | 11 of 15 | 15 of 15 |
 | MRR | 0.657 | 0.878 |
-| Оценка нужного файла: минимум / медиана | 0.804 / 0.859 | 0.675 / 0.762 |
-| Лучшая оценка бессмысленного запроса | 0.787 - 0.830 | 0.586 - 0.618 |
+| Score of the right file: min / median | 0.804 / 0.859 | 0.675 / 0.762 |
+| Best score of a nonsense query | 0.787 - 0.830 | 0.586 - 0.618 |
 
-- **Разделение.** У E5 бессмысленные запросы (до 0.830) набирают больше, чем часть правильных (от 0.804). Порог не отделяет шум без потери верных файлов. У Gemma самый слабый верный результат (0.675) выше лучшего шума (0.618), порог 0.65 разделяет их на этих 18 запросах.
-- **Языки.** Из 8 русских запросов Gemma ставит нужный файл на 1-е место в 6, E5 в 4. У E5 четыре русских запроса дали места 3, 4, 5 и 8.
-- **Порог.** `MinSimilarity` для Gemma выставлен в 0.65. Это значение подобрано по тем же 18 запросам. Его нужно проверить на других данных.
+- **Separation.** With E5, nonsense queries (up to 0.830) score higher than some right ones (from 0.804). A threshold cannot remove the noise without losing right files. With Gemma, the weakest right result (0.675) is above the best noise (0.618). A threshold of 0.65 separates them on these 18 queries.
+- **Languages.** Of 8 Russian queries, Gemma puts the right file at rank 1 in 6, and E5 in 4. With E5, four Russian queries gave ranks 3, 4, 5, and 8.
+- **Threshold.** `MinSimilarity` for Gemma is set to 0.65. This value was tuned on the same 18 queries. It needs a check on other data.
 
-## Скорость
+## Speed
 
-| Показатель | E5-small, CPU | EmbeddingGemma 2, NPU |
+| Metric | E5-small, CPU | EmbeddingGemma 2, NPU |
 |---|---|---|
-| Индексация | 56 мс на фрагмент (17.7 в секунду) | 321 мс на фрагмент (3.1 в секунду) |
-| Запрос с ранжированием | 9 мс | 172 мс |
+| Indexing | 56 ms per chunk (17.7 per second) | 321 ms per chunk (3.1 per second) |
+| Query with ranking | 9 ms | 172 ms |
 
-Скорость в этом замере хуже, чем в прошлом (167 мс на фрагмент у Gemma, 27 мс у E5). Здесь индексация шла в одном процессе сразу после сборки, а работающий агент и другие процессы нагружали машину. Это не повторный замер при тех же условиях, числа не сравнивать с прошлыми.
+Speed in this measurement is worse than in the previous one (167 ms per chunk for Gemma, 27 ms for E5). Here, indexing ran in one process right after the build. A running agent and other processes loaded the machine. This is not a repeat measurement under the same conditions. Do not compare these numbers with the earlier ones.
 
-## Вывод
+## Conclusion
 
-Gemma ищет заметно лучше, особенно между русским и английским. Цена: в 5-6 раз медленнее на индексации и около 2 ГБ памяти процесса NPU. Запрос 172 мс приемлем для поиска. Нужен AMD NPU и локальная сборка Taconite, поэтому E5 остаётся моделью по умолчанию для остальных машин.
+Gemma searches noticeably better, especially between Russian and English. The cost: 5-6 times slower indexing and about 2 GB of memory for the NPU process. A query time of 172 ms is acceptable for search. Gemma needs an AMD NPU and a local Taconite build. So E5 stays the default model for other machines.
 
-## Картинки (Gemma 2 на NPU), 2026-11-05
+## Images (Gemma 2 on the NPU), 2026-11-05
 
-Сервер принимает запрос `@image` с путём к JPEG или PNG и возвращает вектор картинки в том же пространстве, что и текст. Замер: `Recall.EmbedEval --model embeddinggemma2-npu --images <папка скриншотов>`. Правильный ответ определяется по имени файла: ShareX называет скриншот `приложение_случайные-буквы.jpg`, и запрос про терминал верен для скриншотов `WindowsTerminal`, `Termius` и `OpenCode`. Картинки инструмент не открывает и не показывает, в выборку попали 152 картинки из 19 приложений (до 8 на приложение, плюс `chrome`, `browser` и `msedge` как посторонние). Запросы лежат в `tools/Recall.EmbedEval/image-queries.json`: 11 запросов с известным ответом (русские и английские) и 3 бессмысленных.
+The server accepts an `@image` request with a path to a JPEG or PNG. It returns the image vector in the same space as text. Measurement: `Recall.EmbedEval --model embeddinggemma2-npu --images <screenshots folder>`. The right answer comes from the file name: ShareX names a screenshot `приложение_случайные-буквы.jpg`, and a query about a terminal is right for the screenshots `WindowsTerminal`, `Termius`, and `OpenCode`. The tool does not open or show the images. The sample has 152 images from 19 applications (up to 8 per application, plus `chrome`, `browser`, and `msedge` as outsiders). The queries are in `tools/Recall.EmbedEval/image-queries.json`: 11 queries with a known answer (Russian and English) and 3 nonsense queries.
 
-| Показатель | Значение |
+| Metric | Value |
 |---|---|
-| Время на картинку | 1190 мс |
-| Правильный класс на 1-м месте | 7 из 11 |
-| В первой тройке | 9 из 11 |
+| Time per image | 1190 ms |
+| Right class at rank 1 | 7 of 11 |
+| In the top three | 9 of 11 |
 | MRR | 0.746 |
-| Оценка правильных картинок: медиана / 90-й процентиль | 0.626 / 0.683 |
-| Оценка неправильных: медиана / 90-й процентиль | 0.591 / 0.644 |
-| Лучший результат бессмысленных запросов | 0.583 - 0.624 |
+| Score of right images: median / 90th percentile | 0.626 / 0.683 |
+| Score of wrong images: median / 90th percentile | 0.591 / 0.644 |
+| Best result of nonsense queries | 0.583 - 0.624 |
 
-- **Порог.** Лучшая правильная картинка каждого запроса набирает от 0.653. Бессмысленные запросы дают до 0.624. Порог для картинок поставлен на 0.64: он оставляет лучшие картинки класса и отсекает шум. Остальные правильные картинки (медиана 0.626) под порогом, их находит только OCR-текст.
-- **Что это значит.** Запросы про вид окна ("терминал", "документ Word") работают неплохо, но на запросах про "файловый менеджер" и "терминал" лучший неправильный результат был выше правильного. Это поиск по общему виду, а не по надписи. Точный текст на скриншоте по-прежнему находит OCR.
-- **Цена.** Около 1.2 секунды NPU на картинку. 4500 скриншотов в папке ShareX это около полутора часов фоновой работы. Режим выключается параметром `embedImages` в `config.json`.
-- **Группы по 3 (2026-11-04).** Агент отправляет страницу картинок одним запросом `@images`, сервер декодирует их параллельно и гонит через NPU по три (`embed_rgb_pipelined`). На 36 скриншотах ShareX, 2 раунда: по одной 960 и 1040 мс на картинку, группами 784 и 848 мс, то есть примерно на 19% быстрее. Векторы одинаковы (хеш ответов совпал во всех режимах). Решения порта: переиспользование буферов и нулевое дополнение входов, в сервер собраны из ветки `perf/host-pipeline`.
-- **Ограничения.** Выборка маленькая, запросы мои, правильные ответы заданы по имени приложения. WEBP, BMP, GIF, TIFF и HEIC сервер не читает, у них остаётся только OCR.
+- **Threshold.** The best right image of each query scores from 0.653. Nonsense queries give up to 0.624. The image threshold is set to 0.64. It keeps the best images of a class and cuts the noise. The other right images (median 0.626) fall under the threshold. Only OCR text finds them.
+- **What this means.** Queries about the look of a window ("терминал", "документ Word") work fairly well. But for the queries "файловый менеджер" and "терминал", the best wrong result scored higher than the right one. This is a search by overall look, not by a caption. OCR still finds the exact text on a screenshot.
+- **Cost.** About 1.2 seconds of NPU time per image. 4500 screenshots in the ShareX folder take about an hour and a half of background work. The `embedImages` parameter in `config.json` turns this mode off.
+- **Groups of 3 (2026-11-04).** The agent sends a page of images in one `@images` request. The server decodes them in parallel and runs them through the NPU three at a time (`embed_rgb_pipelined`). On 36 ShareX screenshots, 2 rounds: one at a time took 960 and 1040 ms per image, groups took 784 and 848 ms. That is about 19% faster. The vectors are identical (the response hash matched in all modes). The port decisions, buffer reuse and zero padding of the inputs, were built into the server from the `perf/host-pipeline` branch.
+- **Limits.** The sample is small, the queries are mine, and the right answers come from the application name. The server does not read WEBP, BMP, GIF, TIFF, and HEIC. For these, only OCR remains.

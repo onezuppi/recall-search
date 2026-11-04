@@ -1,15 +1,15 @@
-name: Идея
-description: Предложить улучшение
+name: Idea
+description: Suggest an improvement
 labels: [enhancement]
 body:
   - type: textarea
     id: need
     attributes:
-      label: Какую задачу вы решаете
-      description: Опишите ситуацию, а не решение.
+      label: What problem are you solving
+      description: Describe the situation, not the solution.
     validations:
       required: true
   - type: textarea
     id: idea
     attributes:
-      label: Как вы это видите
+      label: How do you picture it

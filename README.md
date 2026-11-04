@@ -2,9 +2,9 @@
 
 # Recall Search
 
-**Найдите файл по тому, что вы помните: слово на скриншоте, фраза из PDF, смысл картинки.**
+**Find a file by what you remember: a word on a screenshot, a phrase from a PDF, the meaning of a picture.**
 
-Поиск по тексту и смыслу для Windows. Работает локально, внутри PowerToys Command Palette.
+Text and semantic search for Windows. It runs locally, inside PowerToys Command Palette.
 
 [![Release](https://img.shields.io/github/v/release/onezuppi/recall-search?style=flat-square)](https://github.com/onezuppi/recall-search/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/onezuppi/recall-search/total?style=flat-square)](https://github.com/onezuppi/recall-search/releases)
@@ -14,80 +14,80 @@
 
 </div>
 
-Recall Search индексирует выбранные папки и ищет в них текст, который вы помните. Он читает текст с картинок и скриншотов (OCR Windows), из PDF, документов Office и текстовых файлов. По желанию добавляется поиск по смыслу: запрос "окно терминала" находит скриншот терминала, даже если слов на нём нет.
+Recall Search indexes the folders you choose and finds the text you remember. It reads text from images and screenshots (Windows OCR), PDFs, Office documents and plain text files. Optional semantic search finds a terminal screenshot for the query "terminal window", even when the picture contains no such words.
 
-Файлы, текст и индекс не покидают компьютер. В проекте нет телеметрии и облачных сервисов.
+Your files, their text and the index never leave your computer. The project has no telemetry and no cloud services.
 
-## Возможности
+## Features
 
-- **Поиск по фрагменту.** Достаточно помнить часть слова или фразы, минимум три символа.
-- **Картинки и скриншоты.** OCR на русском и английском. Картинки внутри DOCX, XLSX и PPTX тоже читаются.
-- **Документы.** PDF, DOCX, XLSX, PPTX, TXT, MD.
-- **Поиск по смыслу** (по желанию). Модель на процессоре или на NPU AMD. Находит и текст, и картинки.
-- **Фильтры:** `in:`, `type:`, `after:`, `before:` и точные фразы в кавычках.
-- **Слежение за папками.** Новые файлы попадают в индекс через пару секунд.
-- **Умные исключения.** Встроенные правила, `.gitignore`, `.recallignore`. Секреты (`.pem`, `.key`, `.env`, `.kdbx` и другие) не читаются никогда.
-- **Не мешает работе.** Агент работает с пониженным приоритетом и ставит индексацию на паузу в полноэкранной игре и презентации.
+- **Fragment search.** Remember part of a word or a phrase, at least three characters.
+- **Images and screenshots.** OCR in Russian and English. Pictures inside DOCX, XLSX and PPTX are read too.
+- **Documents.** PDF, DOCX, XLSX, PPTX, TXT, MD.
+- **Semantic search** (optional). A model on the CPU or on an AMD NPU. It finds both text and images.
+- **Filters:** `in:`, `type:`, `after:`, `before:` and exact phrases in quotes.
+- **Folder watching.** New files reach the index within a couple of seconds.
+- **Smart exclusions.** Built-in rules, `.gitignore`, `.recallignore`. Secrets (`.pem`, `.key`, `.env`, `.kdbx` and others) are never read.
+- **Stays out of your way.** The agent runs at low priority and pauses indexing during a full-screen game or a presentation.
 
-## Установка
+## Installation
 
-Нужны Windows 10 или 11 и [PowerToys](https://github.com/microsoft/PowerToys) с Command Palette. .NET и SDK не нужны.
+You need Windows 10 or 11 and [PowerToys](https://github.com/microsoft/PowerToys) with Command Palette. You do not need .NET or the SDK.
 
-1. Включите режим разработчика: Параметры Windows, Система, Для разработчиков, Режим разработчика. Он нужен, потому что расширение пока не подписано.
-2. Скачайте `RecallSearch-<версия>-win-x64.zip` со страницы [Releases](https://github.com/onezuppi/recall-search/releases/latest) и распакуйте.
-3. Откройте PowerShell в распакованной папке и выполните:
+1. Turn on Developer Mode: Windows Settings, System, For developers, Developer Mode. The extension is not signed yet, so Windows requires this.
+2. Download `RecallSearch-<version>-win-x64.zip` from [Releases](https://github.com/onezuppi/recall-search/releases/latest) and extract it.
+3. Open PowerShell in the extracted folder and run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-4. Откройте Command Palette, выполните команду `Reload`, затем введите "Recall Search".
+4. Open Command Palette, run the `Reload` command, then type "Recall Search".
 
-Установщик работает без прав администратора. Он ставит агента в `%LOCALAPPDATA%\Programs\RecallSearch`, регистрирует расширение и добавляет агента в автозапуск текущего пользователя. Отказаться от автозапуска можно ключом `-NoAutostart`. Обновление: распакуйте новый архив и запустите `install.ps1` ещё раз, индекс и настройки сохранятся.
+The installer needs no administrator rights. It puts the agent in `%LOCALAPPDATA%\Programs\RecallSearch`, registers the extension and adds the agent to the autostart of the current user. Pass `-NoAutostart` to skip the autostart. To update, extract the new archive and run `install.ps1` again. Your index and settings stay.
 
-Первый проход по большим коллекциям идёт долго, особенно с поиском по смыслу. Прогресс виден в настройках расширения, карточка "Indexing progress". Текстовый поиск работает уже в процессе.
+The first pass over a large collection takes a long time, especially with semantic search. You can see the progress in the extension settings, card "Indexing progress". Text search works while indexing continues.
 
-Удаление:
+To uninstall:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-Индекс и настройки остаются в `%LOCALAPPDATA%\RecallSearch`. Чтобы удалить и их, добавьте `-RemoveData`.
+The index and settings stay in `%LOCALAPPDATA%\RecallSearch`. Add `-RemoveData` to delete them too.
 
-> Проверьте контрольную сумму архива: она лежит рядом, в файле `.sha256`.
+> Check the checksum of the archive. It is in the `.sha256` file next to it.
 
-## Как искать
+## How to search
 
-| Запрос | Что находит |
+| Query | What it finds |
 |---|---|
-| `счёт 4521` | Файлы, где есть оба фрагмента. |
-| `"оплата по договору"` | Точная фраза. |
-| `договор in:Downloads` | Только пути с `Downloads`. |
-| `накладная type:pdf` | Только PDF. Работают расширения и группы (`images`, `office`, `text`). |
-| `пароль after:2026-05` | Файлы, изменённые с 1 мая 2026. |
-| `type:png "код подтверждения" after:2026-05-14` | Фильтры и фразы сочетаются. |
+| `invoice 4521` | Files that contain both fragments. |
+| `"payment under the contract"` | The exact phrase. |
+| `contract in:Downloads` | Only paths that contain `Downloads`. |
+| `waybill type:pdf` | Only PDFs. Extensions and groups (`images`, `office`, `text`) work. |
+| `password after:2026-05` | Files changed since 1 May 2026. |
+| `type:png "confirmation code" after:2026-05-14` | Filters and phrases combine. |
 
-Полное описание, правила исключений и все настройки: [руководство](docs/guide.md).
+For the full syntax, exclusion rules and all settings, see the [user guide](docs/guide.md).
 
-## Поиск по смыслу
+## Semantic search
 
-Выключен по умолчанию. Включается в настройках расширения, карточка "Semantic search device":
+Off by default. Turn it on in the extension settings, card "Semantic search device":
 
-- `cpu`: модель multilingual-e5-small (около 123 МБ, скачивается один раз с Hugging Face). Работает на любом компьютере.
-- `npu`: EmbeddingGemma 2 на NPU AMD. Быстрее и считает картинки, но нужны отдельный сервер и пакет модели ([инструкция](tools/npu-embed-server/README.md)).
+- `cpu`: the multilingual-e5-small model (about 123 MB, downloaded once from Hugging Face). It runs on any computer.
+- `npu`: EmbeddingGemma 2 on an AMD NPU. It is faster and it embeds images, but it needs a separate server and a model bundle ([instructions](tools/npu-embed-server/README.md)).
 
-Подробности и замеры: [руководство](docs/guide.md#поиск-по-смыслу).
+Details and measurements: [user guide](docs/guide.md#semantic-search).
 
-## Приватность и безопасность
+## Privacy and security
 
-- Ничего не уходит с компьютера. Единственный сетевой запрос: скачивание модели `cpu` с Hugging Face, и только если вы её выбрали.
-- Агент и расширение общаются по именованному каналу `RecallSearch.<SID>`. Доступ есть только у вашей учётной записи. Клиент проверяет, что канал держит именно `Recall.Agent.exe` из папки установки.
-- Индекс содержит текст ваших документов. Он лежит в профиле пользователя под защитой прав файловой системы. Шифрования самого файла нет.
+- Nothing leaves your computer. The only network request is the download of the `cpu` model from Hugging Face, and only if you select it.
+- The agent and the extension talk over the named pipe `RecallSearch.<SID>`. Only your account can use it. The client checks that the pipe belongs to `Recall.Agent.exe` from the install folder.
+- The index holds the text of your documents. It lives in your user profile under file system permissions. The file itself is not encrypted.
 
-О найденной уязвимости сообщайте по правилам из [SECURITY.md](SECURITY.md).
+To report a vulnerability, follow [SECURITY.md](SECURITY.md).
 
-## Сборка из исходников
+## Building from source
 
 ```powershell
 git clone https://github.com/onezuppi/recall-search.git
@@ -96,8 +96,8 @@ dotnet test
 .\scripts\build-release.ps1
 ```
 
-Подробности для разработчиков: [docs/development.md](docs/development.md). Правила участия: [CONTRIBUTING.md](CONTRIBUTING.md). История изменений: [CHANGELOG.md](CHANGELOG.md). Планы: [дорожная карта](docs/roadmap.md).
+More for developers: [docs/development.md](docs/development.md). How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md). History of changes: [CHANGELOG.md](CHANGELOG.md). Plans: [roadmap](docs/roadmap.md).
 
-## Лицензия
+## License
 
 [MIT](LICENSE)
