@@ -20,6 +20,21 @@ jobs:
         run: dotnet build RecallSearch.sln -c Release
       - name: Test
         run: dotnet test RecallSearch.sln -c Release --no-build --logger "trx;LogFileName=tests.trx"
+      - name: Report failed tests
+        if: failure()
+        shell: pwsh
+        run: |
+          # Turns every failed test into an annotation, so the cause is visible on the run page without opening the log.
+          Get-ChildItem -Recurse -Filter tests.trx | ForEach-Object {
+            [xml]$trx = Get-Content $_.FullName
+            $ns = New-Object Xml.XmlNamespaceManager($trx.NameTable)
+            $ns.AddNamespace('t', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
+            foreach ($r in $trx.SelectNodes("//t:UnitTestResult[@outcome='Failed']", $ns)) {
+              $text = ($r.Output.ErrorInfo.Message -replace '\s+', ' ').Trim()
+              if ($text.Length -gt 600) { $text = $text.Substring(0, 600) }
+              Write-Host "::error::$($r.testName) :: $text"
+            }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
