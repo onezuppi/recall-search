@@ -54,7 +54,10 @@ public class IndexRunnerPauseTests : RunnerTestBase
         var progress = new SyncProgress<RunProgress>(_ => { if (Interlocked.Increment(ref seen) == 2) gate.Pause(); });
         var run = Runner(s, gate, workers: 1).RunAsync([R()], progress, default);
 
-        await Task.Delay(500);
+        // Wait for the second file instead of a fixed time: a cold CI machine needs more than half a second for it.
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (Volatile.Read(ref seen) < 2 && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await Task.Delay(300);   // time for a third file to start, if the pause did not hold
         Assert.False(run.IsCompleted);
         Assert.Equal(2, s.Store.Counts().Indexed); // the file in flight finishes, nothing new starts
 
