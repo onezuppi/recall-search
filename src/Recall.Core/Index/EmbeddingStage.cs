@@ -98,17 +98,7 @@ public sealed class EmbeddingStage(
     /// <summary>A picture that cannot be read or has an unsupported format gets a blank row, so it is not tried again.</summary>
     private static List<EmbeddingRow> EmbedImages(IEmbedder embedder, IReadOnlyList<PendingImage> page)
     {
-        var rows = new List<EmbeddingRow>();
-        foreach (var p in page)
-        {
-            float[]? vector = null;
-            if (embedder is IImageEmbedder images)
-            {
-                try { vector = images.EmbedImage(p.Path); }
-                catch (InvalidDataException) { }
-            }
-            rows.Add(vector == null ? EmbeddingRow.Blank(p.SegmentId) : new EmbeddingRow(p.SegmentId, 0, vector));
-        }
-        return rows;
+        var vectors = embedder is IImageEmbedder images ? images.EmbedImages([.. page.Select(p => p.Path)]) : new float[]?[page.Count];
+        return [.. page.Select((p, i) => vectors[i] == null ? EmbeddingRow.Blank(p.SegmentId) : new EmbeddingRow(p.SegmentId, 0, vectors[i]!))];
     }
 }

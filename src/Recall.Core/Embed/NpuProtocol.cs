@@ -18,7 +18,10 @@ public static class NpuProtocol
     /// <summary>Asks for the vector of a JPEG or PNG file. The server decodes the file itself.</summary>
     public static string ImageRequest(string path) => ImagePrompt + "\t" + Escape(path);
 
-    public const string ImagePrompt = "@image";
+    public const string ImagePrompt = "@image", ImagesPrompt = "@images";
+
+    /// <summary>Several pictures in one line: their escaped paths separated by a tab. The server answers with one line per picture.</summary>
+    public static string ImagesRequest(IEnumerable<string> paths) => ImagesPrompt + "\t" + string.Join("\t", paths.Select(Escape));
 
     public static bool IsImageFormat(string path) =>
         Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png";
