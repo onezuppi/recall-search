@@ -1,0 +1,16 @@
+[
+  { "q": "terminal window with command line text", "apps": ["WindowsTerminal", "Termius", "OpenCode"] },
+  { "q": "окно терминала с командной строкой", "apps": ["WindowsTerminal", "Termius", "OpenCode"] },
+  { "q": "code editor with source code", "apps": ["webstorm64", "studio64", "pycharm64", "Cursor"] },
+  { "q": "редактор кода с исходным текстом программы", "apps": ["webstorm64", "studio64", "pycharm64", "Cursor"] },
+  { "q": "chat conversation with messages", "apps": ["Telegram", "ChatGPT", "ms-teams", "claude", "Codex"] },
+  { "q": "переписка в мессенджере", "apps": ["Telegram", "ChatGPT", "ms-teams", "claude", "Codex"] },
+  { "q": "Microsoft Word document with text", "apps": ["WINWORD"] },
+  { "q": "документ Word", "apps": ["WINWORD"] },
+  { "q": "file manager showing folders and files", "apps": ["explorer"] },
+  { "q": "command palette search box with a list of results", "apps": ["Microsoft.CmdPal.UI"] },
+  { "q": "VPN or proxy client application", "apps": ["Happ"] },
+  { "q": "рецепт борща со сметаной", "apps": null },
+  { "q": "photo of a mountain lake at sunrise", "apps": null },
+  { "q": "how to train a dog to sit", "apps": null }
+]

@@ -54,10 +54,17 @@ internal static class IndexSchema
         END;
         """;
 
+    /// <summary>Pictures indexed before picture vectors existed have no segment when they had no text. Idempotent.</summary>
+    private const string BackfillPictureSegments = """
+        INSERT INTO segments(content_id, locator, text)
+        SELECT c.id, '', '' FROM contents c
+        WHERE c.grp = 'images' AND NOT EXISTS (SELECT 1 FROM segments s WHERE s.content_id = c.id);
+        """;
+
     public static void Create(SqliteConnection db)
     {
         Execute(db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-        try { Execute(db, Ddl); }
+        try { Execute(db, Ddl); Execute(db, BackfillPictureSegments); }
         catch (SqliteException e) when (e.Message.Contains("tokenizer", StringComparison.OrdinalIgnoreCase)
                                         || e.Message.Contains("fts5", StringComparison.OrdinalIgnoreCase))
         {

@@ -5,6 +5,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Recall.Core\Recall.Core.csproj" />
-    <None Include="queries.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="queries.json;image-queries.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

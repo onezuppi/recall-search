@@ -23,6 +23,12 @@ internal static class Program
         var opt = Options.Parse(args);
         if (opt == null) { Console.Error.WriteLine("usage: --model <id> --corpus <dir> [--corpus <dir>] [--models-root <dir>] [--server <exe> --bundle <dir>]"); return 1; }
         var spec = ModelCatalog.Find(opt.Model) ?? throw new InvalidOperationException($"unknown model {opt.Model}");
+        if (opt.Images != null)
+        {
+            using var imageEmbedder = Create(spec, opt);
+            ImageEval.Run(imageEmbedder, opt.Images, 8);
+            return 0;
+        }
         var queries = JsonSerializer.Deserialize<Query[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "queries.json")),
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 

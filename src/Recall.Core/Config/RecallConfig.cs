@@ -35,6 +35,12 @@ public sealed record RecallConfig(
     /// Raise it to see fewer, surer semantic hits; lower it to see more.
     /// </summary>
     public float? EmbeddingMinSimilarity { get; init; }
+
+    /// <summary>Also embed picture files when the model can (EmbeddingGemma 2 on the NPU). About a second of NPU time per picture.</summary>
+    public bool EmbedImages { get; init; } = true;
+
+    /// <summary>The floor for picture hits. Null keeps the default of the chosen model.</summary>
+    public float? EmbeddingImageMinSimilarity { get; init; }
     public IReadOnlyList<string> OcrLanguages { get; init; } = ["ru", "en-US"];
 
     /// <summary>Extra file types: extension with the leading dot (lower case) to group name. Built-in types cannot be overridden.</summary>

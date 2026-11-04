@@ -6,7 +6,8 @@ namespace Recall.Core.Embed;
 /// Loads the embedding model on first use and unloads it <paramref name="unloadDelay"/> after the last lease ends, so the
 /// model is in memory only while indexing or answering a query. <see cref="Space"/> is known without loading.
 /// </summary>
-public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan unloadDelay, float minSimilarity = 0f) : IDisposable
+public sealed class EmbedderHost(
+    string space, Func<IEmbedder> factory, TimeSpan unloadDelay, float minSimilarity = 0f, string? imageSpace = null, float minImageSimilarity = 0f) : IDisposable
 {
     private static IReadOnlyList<IEmbedderProvider> ProvidersFor(RecallConfig config) =>
         [new OnnxE5Provider(), new TaconiteNpuProvider(config.NpuServerPath, config.NpuBundlePath)];
@@ -18,6 +19,11 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
     private bool _releasePending;
 
     public string Space => space;
+
+    /// <summary>Where picture vectors are kept; null when the model or the configuration does not embed pictures.</summary>
+    public string? ImageSpace => imageSpace;
+
+    public float MinImageSimilarity { get => Volatile.Read(ref minImageSimilarity); set => Volatile.Write(ref minImageSimilarity, value); }
 
     /// <summary>Vector hits scoring under this cosine similarity are not shown.</summary>
     public float MinSimilarity { get => Volatile.Read(ref minSimilarity); set => Volatile.Write(ref minSimilarity, value); }
@@ -55,7 +61,9 @@ public sealed class EmbedderHost(string space, Func<IEmbedder> factory, TimeSpan
             var provider = (providers ?? ProvidersFor(config)).FirstOrDefault(p => p.Supports(spec, config.EmbeddingDevice))
                 ?? throw new NotSupportedException($"model {spec.Id} cannot run on {config.EmbeddingDevice} yet");
             return provider.Create(spec, ModelDownloader.DirectoryOf(modelsRoot, spec), config.EmbeddingDevice);
-        }, unloadDelay ?? TimeSpan.FromSeconds(60), config.EmbeddingMinSimilarity ?? spec?.MinSimilarity ?? 0f);
+        }, unloadDelay ?? TimeSpan.FromSeconds(60), config.EmbeddingMinSimilarity ?? spec?.MinSimilarity ?? 0f,
+            config.EmbedImages && spec is { EmbedsImages: true } ? spec.ImageSpace : null,
+            config.EmbeddingImageMinSimilarity ?? spec?.MinImageSimilarity ?? 0f);
     }
 
     public Lease Acquire()

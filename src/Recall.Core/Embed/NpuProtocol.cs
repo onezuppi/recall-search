@@ -15,6 +15,14 @@ public static class NpuProtocol
 
     public static string Request(EmbedKind kind, string text) => PromptFor(kind) + "\t" + Escape(text);
 
+    /// <summary>Asks for the vector of a JPEG or PNG file. The server decodes the file itself.</summary>
+    public static string ImageRequest(string path) => ImagePrompt + "\t" + Escape(path);
+
+    public const string ImagePrompt = "@image";
+
+    public static bool IsImageFormat(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png";
+
     public static string Escape(string text)
     {
         var sb = new StringBuilder(text.Length + 8);

@@ -6,14 +6,20 @@ public sealed record ModelFile(string RemotePath, string Sha256, long Size)
 }
 
 /// <param name="MinSimilarity">Cosine similarity under which a vector hit is noise. Each model has its own score range.</param>
+/// <param name="MinImageSimilarity">The same floor for picture hits; text queries score lower against pictures.</param>
 /// <param name="Kind">Selects the <see cref="IEmbedderProvider"/> that can run the model.</param>
 /// <param name="Files">Empty for a local model. Otherwise index 0 is the ONNX model, index 1 is the SentencePiece tokenizer model.</param>
-public sealed record ModelSpec(string Id, string Repo, string Revision, int Dimensions, int MaxTokens, IReadOnlyList<ModelFile> Files, float MinSimilarity = 0f, string Kind = ModelSpec.KindE5Onnx)
+public sealed record ModelSpec(string Id, string Repo, string Revision, int Dimensions, int MaxTokens, IReadOnlyList<ModelFile> Files, float MinSimilarity = 0f, string Kind = ModelSpec.KindE5Onnx, float MinImageSimilarity = 0f)
 {
     public const string KindE5Onnx = "e5-onnx", KindTaconiteNpu = "taconite-npu";
 
     /// <summary>Vectors of different models or revisions are not comparable, so they are stored under this id.</summary>
     public string Space => $"{Id}@{Revision}";
+
+    /// <summary>Models that also embed pictures keep those vectors in their own space, because text-to-image scores sit lower than text-to-text ones.</summary>
+    public bool EmbedsImages => Kind == KindTaconiteNpu;
+
+    public string ImageSpace => Space + "+image";
 
     public ModelFile Onnx => Files[0];
     public ModelFile Tokenizer => Files[1];
@@ -31,7 +37,7 @@ public static class ModelCatalog
         ], MinSimilarity: 0.84f),
         // A local bundle, not downloaded. Runs only on the NPU through the provider that the config points at.
         // Floor 0.65 separates nonsense queries (up to 0.62) from the right file (from 0.68) on 18 queries; see docs/benchmarks/2026-11-gemma-vs-e5.md.
-        new("embeddinggemma2-npu", "", "taconite-0.2.0", 768, 2048, [], MinSimilarity: 0.65f, Kind: ModelSpec.KindTaconiteNpu),
+        new("embeddinggemma2-npu", "", "taconite-0.2.0", 768, 2048, [], MinSimilarity: 0.65f, Kind: ModelSpec.KindTaconiteNpu, MinImageSimilarity: 0.64f),
     ];
 
     public static ModelSpec? Find(string id) => All.FirstOrDefault(m => m.Id.Equals(id, StringComparison.OrdinalIgnoreCase));

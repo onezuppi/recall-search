@@ -84,7 +84,8 @@ public sealed partial class SqliteIndexRepository : IIndexRepository
             }
             foreach (var s in segments)
             {
-                if (string.IsNullOrWhiteSpace(s.Text)) continue;
+                // A picture with no text keeps an empty segment: the picture vector is stored against a segment.
+                if (string.IsNullOrWhiteSpace(s.Text) && group != Ignore.BuiltInRules.Images) continue;
                 using var cmd = _db.CreateCommand();
                 cmd.Transaction = tx;
                 cmd.CommandText = "INSERT INTO segments(content_id, locator, text) VALUES ($c,$l,$t)";

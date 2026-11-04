@@ -3,6 +3,9 @@ namespace Recall.Core.Index;
 /// <summary>A stored segment that has no vector yet in some embedding space.</summary>
 public sealed record PendingSegment(long SegmentId, string Text);
 
+/// <summary>The segment of a picture file that has no picture vector yet, with the path of a file that holds it.</summary>
+public sealed record PendingImage(long SegmentId, string Path);
+
 /// <summary>One vector of a segment chunk. A segment with no embeddable text is marked done by <see cref="Blank"/>.</summary>
 public sealed record EmbeddingRow(long SegmentId, int Chunk, float[] Vector)
 {
@@ -16,6 +19,9 @@ public interface IEmbeddingRepository
 {
     /// <summary>Segments of contents that some file with status ok points to and that have no row in <paramref name="space"/>, oldest first.</summary>
     IReadOnlyList<PendingSegment> PendingSegments(string space, int limit);
+
+    /// <summary>Segments of picture contents that no ok file has a vector for in <paramref name="space"/>, oldest first.</summary>
+    IReadOnlyList<PendingImage> PendingImages(string space, int limit);
 
     /// <summary>Stores rows in one transaction. Rows of segments that were deleted in the meantime are dropped.</summary>
     void AddEmbeddings(string space, IReadOnlyList<EmbeddingRow> rows);

@@ -82,7 +82,9 @@ public sealed class SearchEngine(ISearchRepository repository, EmbedderHost? emb
         {
             using var lease = embedder.Acquire();
             var vector = lease.Embedder.Embed([string.Join(" ", terms)], EmbedKind.Query)[0];
-            return VectorSearch.Find(session, q, vector, embedder.Space, limit, embedder.MinSimilarity);
+            var spaces = new List<VectorSpace> { new(embedder.Space, embedder.MinSimilarity) };
+            if (embedder.ImageSpace is { } images) spaces.Add(new(images, embedder.MinImageSimilarity));
+            return VectorSearch.Find(session, q, vector, spaces, limit);
         }
         // The semantic step is optional: a missing or broken model must not take the text search down with it.
         catch (Exception e) when (e is not OperationCanceledException) { return []; }

@@ -28,6 +28,28 @@ public sealed partial class SqliteIndexRepository : IEmbeddingRepository
         }
     }
 
+    public IReadOnlyList<PendingImage> PendingImages(string space, int limit)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = $"""
+                SELECT s.id, (SELECT f.path FROM files f WHERE f.content_id = s.content_id AND f.status = '{FileStatus.Ok}' ORDER BY f.path LIMIT 1)
+                FROM segments s JOIN contents c ON c.id = s.content_id
+                WHERE c.grp = 'images'
+                  AND EXISTS (SELECT 1 FROM files f WHERE f.content_id = s.content_id AND f.status = '{FileStatus.Ok}')
+                  AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.segment_id = s.id AND e.space = $space)
+                ORDER BY s.id LIMIT $lim
+                """;
+            cmd.Parameters.AddWithValue("$space", space);
+            cmd.Parameters.AddWithValue("$lim", limit);
+            var list = new List<PendingImage>();
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) list.Add(new PendingImage(r.GetInt64(0), r.GetString(1)));
+            return list;
+        }
+    }
+
     public void AddEmbeddings(string space, IReadOnlyList<EmbeddingRow> rows)
     {
         lock (_gate)

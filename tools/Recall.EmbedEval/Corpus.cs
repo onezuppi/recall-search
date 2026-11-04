@@ -4,11 +4,11 @@ namespace Recall.EmbedEval;
 
 internal sealed record Chunk(string File, string Text);
 
-internal sealed record Options(string Model, IReadOnlyList<string> Corpus, string ModelsRoot, string? Server, string? Bundle)
+internal sealed record Options(string Model, IReadOnlyList<string> Corpus, string ModelsRoot, string? Server, string? Bundle, string? Images = null)
 {
     public static Options? Parse(string[] args)
     {
-        string? model = null, root = null, server = null, bundle = null;
+        string? model = null, root = null, server = null, bundle = null, images = null;
         var corpus = new List<string>();
         for (var i = 0; i + 1 < args.Length; i += 2)
         {
@@ -19,10 +19,11 @@ internal sealed record Options(string Model, IReadOnlyList<string> Corpus, strin
                 case "--models-root": root = args[i + 1]; break;
                 case "--server": server = args[i + 1]; break;
                 case "--bundle": bundle = args[i + 1]; break;
+                case "--images": images = args[i + 1]; break;
                 default: return null;
             }
         }
-        return model == null || corpus.Count == 0 ? null : new Options(model, corpus, root ?? EmbeddingSetup.ModelsRoot, server, bundle);
+        return model == null || (corpus.Count == 0 && images == null) ? null : new Options(model, corpus, root ?? EmbeddingSetup.ModelsRoot, server, bundle, images);
     }
 }
 

@@ -6,7 +6,7 @@ namespace Recall.Core.Embed;
 /// EmbeddingGemma 2 on the AMD NPU through the long-lived <c>windows_embed_server</c> process. Disposing the embedder ends the
 /// process, which frees the model and the NPU contexts; <see cref="EmbedderHost"/> does that after a pass, on a pause and when idle.
 /// </summary>
-public sealed class NpuEmbedder(ModelSpec spec, ILineChannel channel) : IEmbedder
+public sealed class NpuEmbedder(ModelSpec spec, ILineChannel channel) : IEmbedder, IImageEmbedder
 {
     private readonly object _gate = new();
 
@@ -24,6 +24,16 @@ public sealed class NpuEmbedder(ModelSpec spec, ILineChannel channel) : IEmbedde
                 result[i] = NpuProtocol.ParseVector(channel.ReadLine(), spec.Dimensions);
             }
             return result;
+        }
+    }
+
+    public float[]? EmbedImage(string path)
+    {
+        if (!NpuProtocol.IsImageFormat(path)) return null;
+        lock (_gate)
+        {
+            channel.WriteLine(NpuProtocol.ImageRequest(path));
+            return NpuProtocol.ParseVector(channel.ReadLine(), spec.Dimensions);
         }
     }
 
